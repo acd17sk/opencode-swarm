@@ -234,6 +234,13 @@ export declare const COMMAND_REGISTRY: {
         readonly args: "";
         readonly category: "utility";
     };
+    readonly coupling: {
+        readonly handler: (ctx: CommandContext) => Promise<string>;
+        readonly description: "Measure plan coupling (p) and rank modules driving conflicts (Epic mode preview)";
+        readonly details: "Computes the coupling coefficient p = (conflicting task pairs) / (total task pairs) over the current plan, using Epic mode's combined path + co-change conflict signal. Surfaces per-module contention and a ranked decoupling roadmap. Read-only: runs independent of `turbo.epic.cochange.enabled` so it can be used as a what-if diagnostic before opting into the runtime signal.";
+        readonly args: "--phase <n>, --threshold <-1..1>, --min-co-changes <n>, --format markdown|json, --persist";
+        readonly category: "diagnostics";
+    };
     readonly 'dark-matter': {
         readonly handler: (ctx: CommandContext) => Promise<string>;
         readonly description: "Detect hidden file couplings via co-change NPMI analysis";
