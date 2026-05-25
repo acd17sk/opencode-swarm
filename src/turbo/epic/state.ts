@@ -288,14 +288,25 @@ export function resetEpicSession(directory: string, sessionID: string): void {
  * Update the session's `lastDecision` field. Used by the runner after each
  * activation evaluation so `/swarm epic status` can show the most recent
  * decision rationale without re-reading the evidence JSONL.
+ *
+ * Precondition: the session must already have an entry (i.e. the caller has
+ * called `enableEpicMode` previously). This is intentional — recording a
+ * decision for a never-toggled session would produce phantom state that
+ * `/swarm epic status` could not distinguish from a legitimately-active
+ * session. Callers that reach this function should have already verified
+ * `isEpicModeActive(...)` returned `true`. Throws if no session entry exists.
  */
 export function recordEpicDecision(
 	directory: string,
 	sessionID: string,
 	decision: EpicLastDecision,
 ): void {
-	const current =
-		loadEpicSessionState(directory, sessionID) ?? emptySessionState(sessionID);
+	const current = loadEpicSessionState(directory, sessionID);
+	if (!current) {
+		throw new Error(
+			`Cannot record decision for sessionID '${sessionID}': no session entry exists. Call enableEpicMode first.`,
+		);
+	}
 	current.lastDecision = decision;
 	saveEpicSessionState(directory, current);
 }
