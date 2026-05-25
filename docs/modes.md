@@ -523,6 +523,9 @@ The `co_change_analyzer` is composed (not reimplemented) via its existing `_inte
 
 The `epic` mode auto-decides parallel-vs-serial per plan. When on, the architect calls `epic_run_phase(phase)` *instead of* `lean_turbo_run_phase(phase)`; that tool computes the coupling coefficient `p` over the whole plan, gates on three independent checks, and either:
 
+> **Note — dispatching is manual today.** Enabling `/swarm epic on` toggles session state but the architect's prompt does not yet know to call `epic_run_phase` automatically. The user must instruct the architect to use `epic_run_phase(phase)` for the next phase when Epic Mode is on. A future capability may add a system-enhancer hook that injects this guidance into the architect's context; that auto-wiring is intentionally out of scope for the initial Epic Mode release.
+
+
 - **Promotes** → invokes `LeanTurboRunner` for the given phase (composition, no edits to Lean Turbo).
 - **Demotes** → returns a structured "serial" verdict so the caller falls back to the standard serial path.
 

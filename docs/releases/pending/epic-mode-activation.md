@@ -35,7 +35,7 @@
   `src/tools/index.ts`, registered in the plugin `tool: {}` block in
   `src/index.ts`, entry in `TOOL_NAMES` (`src/tools/tool-names.ts`) and
   `AGENT_TOOL_MAP` + description map (`src/config/constants.ts`).
-- 60 new tests covering the durable state (atomic write, fail-closed,
+- 50 new tests covering the durable state (atomic write, fail-closed,
   enable/disable round-trip, decision recording), the activation logic
   across the three gates (each gate individually + combined-failure +
   edge cases), the promotion-evidence writer (append, read, malformed
