@@ -48,6 +48,7 @@ const DEFAULT_MAX_COMMITS = 500;
 interface CacheEntry {
 	head: string;
 	entries: CoChangeEntry[];
+	commitsObserved: number;
 	computedAt: number;
 }
 
@@ -56,6 +57,17 @@ const cache = new Map<string, CacheEntry>();
 export interface GetCoChangePairsOptions {
 	/** Maximum commits the analyzer scans. Defaults to 500. */
 	maxCommitsToAnalyze?: number;
+}
+
+/**
+ * Output of `getCoChangeData`. Carries the same `pairs` returned by
+ * `getCoChangePairs`, plus the commit count the analyzer actually observed
+ * — which Capability C's greenfield gate needs to decide whether the
+ * signal is dense enough to trust.
+ */
+export interface CoChangeData {
+	pairs: CoChangeEntry[];
+	commitsObserved: number;
 }
 
 async function readGitHead(directory: string): Promise<string | null> {
@@ -89,44 +101,47 @@ async function readGitHead(directory: string): Promise<string | null> {
 }
 
 /**
- * Return the full co-change matrix for the given directory at the current
- * git HEAD. The returned entries are unfiltered: every pair the analyzer
- * recorded is present, with NPMI / lift / counts / static-edge fields. The
- * caller (Epic conflict module) applies the configured threshold.
+ * Return the full co-change data for the given directory at the current
+ * git HEAD. The returned `pairs` are unfiltered (every pair the analyzer
+ * recorded, with NPMI / lift / counts / static-edge fields); `commitsObserved`
+ * is the number of distinct commits the analyzer scanned. Capability A
+ * applies the NPMI threshold to `pairs`; Capability C's greenfield gate
+ * inspects `commitsObserved`.
  *
- * Returns `[]` when:
+ * Returns `{ pairs: [], commitsObserved: 0 }` when:
  *  - Directory is not a git repo, or `git` is unavailable / times out.
  *  - The analyzer's commit map is empty (greenfield repo).
- * Both cases are signal-absent, which the conflict module treats as
- * "fall back to path-only" per §15.6 of the design notes.
+ * Both cases are signal-absent.
  */
-export async function getCoChangePairs(
+export async function getCoChangeData(
 	directory: string,
 	options?: GetCoChangePairsOptions,
-): Promise<CoChangeEntry[]> {
+): Promise<CoChangeData> {
 	const head = await readGitHead(directory);
 	if (head === null) {
-		return [];
+		return { pairs: [], commitsObserved: 0 };
 	}
 
 	const cached = cache.get(directory);
 	if (cached && cached.head === head) {
-		return cached.entries;
+		return { pairs: cached.entries, commitsObserved: cached.commitsObserved };
 	}
 
 	const maxCommits = options?.maxCommitsToAnalyze ?? DEFAULT_MAX_COMMITS;
 	let entries: CoChangeEntry[];
+	let commitsObserved: number;
 	try {
 		const commitMap = await _internals.parseGitLog(directory, maxCommits);
+		commitsObserved = commitMap.size;
 		const matrix = _internals.buildCoChangeMatrix(commitMap);
 		entries = Array.from(matrix.values());
 	} catch {
 		// Defense in depth: today `parseGitLog` catches internally and returns
 		// an empty Map on any failure, so this branch is unreachable. If a
 		// future analyzer change lets either primitive throw, fail soft to
-		// preserve the documented "signal absent ⇒ []" contract rather than
-		// leaking exceptions through a planning path.
-		return [];
+		// preserve the documented "signal absent ⇒ empty" contract rather
+		// than leaking exceptions through a planning path.
+		return { pairs: [], commitsObserved: 0 };
 	}
 
 	if (!cache.has(directory) && cache.size >= MAX_TRACKED_DIRS) {
@@ -137,9 +152,27 @@ export async function getCoChangePairs(
 	}
 
 	cache.delete(directory);
-	cache.set(directory, { head, entries, computedAt: Date.now() });
+	cache.set(directory, {
+		head,
+		entries,
+		commitsObserved,
+		computedAt: Date.now(),
+	});
 
-	return entries;
+	return { pairs: entries, commitsObserved };
+}
+
+/**
+ * Back-compat wrapper kept for the M2 path (`/swarm coupling` only needs
+ * `pairs`). Capability C uses `getCoChangeData` directly for the
+ * greenfield gate.
+ */
+export async function getCoChangePairs(
+	directory: string,
+	options?: GetCoChangePairsOptions,
+): Promise<CoChangeEntry[]> {
+	const data = await getCoChangeData(directory, options);
+	return data.pairs;
 }
 
 /** Test-only: drop all cache entries. */
