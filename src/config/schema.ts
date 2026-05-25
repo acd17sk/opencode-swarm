@@ -1360,11 +1360,48 @@ export const LeanTurboConfigSchema = z.object({
 
 export type LeanTurboConfig = z.infer<typeof LeanTurboConfigSchema>;
 
+/**
+ * Epic mode — co-change-aware conflict detection settings.
+ *
+ * Epic mode is an additive layer that composes Lean Turbo (it never modifies it).
+ * Capability A surfaces git co-change history as an extra conflict signal so
+ * pairs of files that historically change together can be treated as conflicting
+ * even when path-based rules would not catch the coupling.
+ *
+ * With `cochange.enabled: false` (the default), no Epic-mode code runs in any
+ * existing flow — behavior is identical to upstream Lean Turbo.
+ */
+export const EpicConfigSchema = z.object({
+	cochange: z
+		.object({
+			/** Master gate for the co-change conflict signal. Default off; opt-in. */
+			enabled: z.boolean().default(false),
+			/**
+			 * NPMI floor for considering a file pair "historically co-changing".
+			 * Range matches co_change_analyzer's npmi range [-1, 1]. The analyzer's
+			 * discovery default is 0.5; the Epic default is set higher (0.6) so the
+			 * signal only escalates clearly-coupled pairs, not borderline ones.
+			 */
+			threshold: z.number().min(-1).max(1).default(0.6),
+			/**
+			 * Minimum raw co-change count required before NPMI is even considered.
+			 * Filters out small-sample-size pairs whose NPMI is statistically noisy.
+			 * The analyzer's discovery default is 3; Epic uses 5 for conservatism.
+			 */
+			min_co_changes: z.number().int().min(1).default(5),
+		})
+		.optional(),
+});
+
+export type EpicConfig = z.infer<typeof EpicConfigSchema>;
+
 export const StandardTurboConfigSchema = z.object({
 	/** Turbo execution strategy. standard = current behavior, lean = constrained parallel. */
 	strategy: z.literal('standard'),
 	/** Lean-mode configuration. Only used when strategy is 'lean'. */
 	lean: LeanTurboConfigSchema.optional(),
+	/** Epic-mode configuration. Additive overlay — composes Lean Turbo without modifying it. */
+	epic: EpicConfigSchema.optional(),
 });
 
 export const LeanTurboStrategyConfigSchema = z.object({
@@ -1372,6 +1409,8 @@ export const LeanTurboStrategyConfigSchema = z.object({
 	strategy: z.literal('lean'),
 	/** Lean-mode configuration. Only used when strategy is 'lean'. */
 	lean: LeanTurboConfigSchema,
+	/** Epic-mode configuration. Additive overlay — composes Lean Turbo without modifying it. */
+	epic: EpicConfigSchema.optional(),
 });
 
 export const TurboConfigSchema = z.discriminatedUnion('strategy', [
