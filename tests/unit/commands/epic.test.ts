@@ -31,7 +31,9 @@ beforeEach(() => {
 	_internals.getAgentSession = ((id: string) =>
 		id === 'sess-1' ? ({ id, turboMode: false } as never) : null) as never;
 	_internals.isEpicModeActive = (() => active) as never;
+	_internals.isStateUnreadable = (() => false) as never;
 	_internals.loadEpicSessionState = (() => sessionStateStored) as never;
+	_internals.readTaskScopes = (() => null) as never;
 	_internals.enableEpicMode = (() => {
 		active = true;
 		enableCalls += 1;
@@ -138,6 +140,15 @@ describe('handleEpicCommand — on / off / toggle', () => {
 		expect(out).toContain("Unknown subcommand 'nope'");
 		expect(out).toContain('Usage:');
 	});
+
+	test('empty-string subcommand is treated as unknown (not toggle)', async () => {
+		// `['']` is different from `[]`: arg0 is '' not undefined.
+		const out = await handleEpicCommand('/fake', [''], 'sess-1');
+		expect(out).toContain("Unknown subcommand ''");
+		// And NO toggle happened.
+		expect(enableCalls).toBe(0);
+		expect(disableCalls).toBe(0);
+	});
 });
 
 describe('handleEpicCommand — status', () => {
@@ -146,6 +157,16 @@ describe('handleEpicCommand — status', () => {
 		const out = await handleEpicCommand('/fake', ['status'], 'sess-1');
 		expect(out).toContain('Epic Mode — Status');
 		expect(out).toContain('has not been toggled');
+	});
+
+	test('distinguishes "state unreadable" from "not toggled"', async () => {
+		_internals.isStateUnreadable = (() => true) as never;
+		const out = await handleEpicCommand('/fake', ['status'], 'sess-1');
+		expect(out).toContain('Epic Mode — Status');
+		expect(out).toContain('unreadable');
+		expect(out).toContain('fail-closed');
+		// And it does NOT mislead with "not toggled".
+		expect(out).not.toContain('has not been toggled');
 	});
 
 	test('renders the last decision when state has one', async () => {

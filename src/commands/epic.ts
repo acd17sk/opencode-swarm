@@ -29,6 +29,7 @@ import {
 	disableEpicMode,
 	enableEpicMode,
 	isEpicModeActive,
+	isStateUnreadable,
 	loadEpicSessionState,
 } from '../turbo/epic/state.js';
 import { readTaskScopes } from '../turbo/lean/conflicts.js';
@@ -44,9 +45,11 @@ export const _internals = {
 	decideEpicActivation,
 	getAgentSession,
 	isEpicModeActive,
+	isStateUnreadable,
 	loadEpicSessionState,
 	enableEpicMode,
 	disableEpicMode,
+	readTaskScopes,
 };
 
 export async function handleEpicCommand(
@@ -110,8 +113,17 @@ function disableAndAck(directory: string, sessionID: string): string {
 }
 
 function renderStatus(directory: string, sessionID: string): string {
-	const state = _internals.loadEpicSessionState(directory, sessionID);
 	const lines: string[] = ['## Epic Mode — Status', ''];
+	// Distinguish "state is corrupt / fail-closed" from "never toggled" —
+	// the underlying loader returns null for both, but the actionable advice
+	// differs (the first one needs repair; the second one just needs `on`).
+	if (_internals.isStateUnreadable(directory)) {
+		lines.push(
+			'**Epic Mode state is unreadable** (`.swarm/epic-state.json` is corrupt or has an unexpected shape). Status cannot be reported until the file is repaired or removed. The fail-closed marker means `epic_run_phase` will refuse to dispatch in this state.',
+		);
+		return lines.join('\n');
+	}
+	const state = _internals.loadEpicSessionState(directory, sessionID);
 	if (!state) {
 		lines.push('Epic Mode has not been toggled for this session.');
 		return lines.join('\n');
@@ -151,7 +163,7 @@ async function renderDecide(directory: string): Promise<string> {
 	const tasks: CouplingTask[] = [];
 	for (const phase of plan.phases) {
 		for (const task of phase.tasks) {
-			const scopeFiles = readTaskScopes(directory, task.id);
+			const scopeFiles = _internals.readTaskScopes(directory, task.id);
 			const scope: string[] = scopeFiles ?? task.files_touched ?? [];
 			tasks.push({ id: task.id, scope });
 		}
