@@ -208,6 +208,12 @@ describe('computeCouplingReport — roadmap', () => {
 		const r = computeCouplingReport(tasks, [], THRESHOLD);
 		expect(r.roadmap[0]).toContain('src/auth.ts');
 		expect(r.roadmap[0]).toMatch(/\d+%/);
+		// Phrasing avoids "drives X% of detected coupling" (which can read as a
+		// share-of-total, but pairs may attribute both endpoints so coverages
+		// can sum past 100%). The chosen phrasing is literal: it's the share
+		// of conflicting pairs this module appears in.
+		expect(r.roadmap[0]).toContain('appears in');
+		expect(r.roadmap[0]).toContain('conflicting pairs');
 	});
 });
 
@@ -245,6 +251,22 @@ describe('formatCouplingReportMarkdown — output structure', () => {
 		expect(md).toContain('src/a.ts');
 		expect(md).toContain('1.1');
 		expect(md).toContain('1.2');
+		// Renamed column header + sum-past-100% disclosure.
+		expect(md).toContain('Pair coverage');
+		expect(md).toContain('can sum past 100%');
+	});
+
+	test('small p value does not collapse to 0.0% in markdown', () => {
+		// 1 conflict over 50 tasks → 1/(50*49/2)=1/1225 ≈ 0.0008 → 0.08% with .toFixed(2).
+		const tasks: CouplingTask[] = Array.from({ length: 50 }, (_, i) => ({
+			id: `t${i}`,
+			scope: i < 2 ? ['src/shared.ts'] : [`src/file-${i}.ts`],
+		}));
+		const r = computeCouplingReport(tasks, [], THRESHOLD);
+		const md = formatCouplingReportMarkdown(r);
+		// 0.08% (the .toFixed(2) rendering) should appear, not 0.0%.
+		expect(md).toContain('0.08%');
+		expect(md).not.toContain('— 0.0%');
 	});
 
 	test('estimate disclaimer present per brief §4.2 ("estimates not facts")', () => {
