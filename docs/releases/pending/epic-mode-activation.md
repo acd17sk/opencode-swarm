@@ -35,13 +35,35 @@
   `src/tools/index.ts`, registered in the plugin `tool: {}` block in
   `src/index.ts`, entry in `TOOL_NAMES` (`src/tools/tool-names.ts`) and
   `AGENT_TOOL_MAP` + description map (`src/config/constants.ts`).
-- 50 new tests covering the durable state (atomic write, fail-closed,
+- 73 new tests covering the durable state (atomic write, fail-closed,
   enable/disable round-trip, decision recording), the activation logic
   across the three gates (each gate individually + combined-failure +
   edge cases), the promotion-evidence writer (append, read, malformed
   line tolerance, error path), the tool integration (failure modes,
-  demotion path, promotion path, per-plan decision aggregation), and
-  the slash command (session validation, on/off/toggle, status, decide).
+  demotion path, promotion path, per-plan decision aggregation), the
+  slash command (session validation, on/off/toggle, status, decide,
+  empty-string subcommand handling, state-unreadable status), the
+  unified `/swarm turbo epic on/off/toggle` subcommand, and the
+  `EPIC_MODE_BANNER` content + `hasActiveEpicMode` per-session
+  / global lookup.
+
+## Auto-dispatch (M3.5)
+
+Enabling Epic Mode via `/swarm epic on` or `/swarm turbo epic on` sets
+the in-memory `session.epicModeActive` flag (mirrored from the durable
+`.swarm/epic-state.json`). The system-enhancer hook
+(`src/hooks/system-enhancer.ts`) detects the flag on every architect
+turn and injects an `EPIC_MODE_BANNER` into the architect's prompt,
+instructing it to use `epic_run_phase` instead of `lean_turbo_run_phase`
+for phase execution.
+
+This wiring follows the same pattern Lean Turbo, Turbo Mode, and
+Full-Auto already use for their banners. The additive edits required:
+`src/state.ts` (new `epicModeActive` session field +
+`hasActiveEpicMode` helper), `src/hooks/system-enhancer.ts` (new
+import + two banner-injection sites), `src/config/constants.ts` (new
+`EPIC_MODE_BANNER` constant). No existing banner / hook / session-state
+behavior is modified.
 
 ## Why
 
@@ -67,13 +89,6 @@ behave exactly as before.
 
 ## Known caveats
 
-- **Decision dispatching is manual today.** The architect must
-  explicitly call `epic_run_phase` instead of `lean_turbo_run_phase`
-  when Epic Mode is on; there's no system-enhancer hook injecting that
-  guidance into the architect's prompt yet. That auto-wiring is a
-  future capability (likely M4 territory) and was deliberately left out
-  of M3 to keep this PR scoped to "activation-only" (per the M3
-  re-scoping decisions in `NOTES-repo-findings.md` §18).
 - **No new degradation tier.** When Epic Mode promotes, individual
   task degradation inside each phase is still handled by Lean Turbo's
   existing per-task logic — unchanged. Epic Mode never adds new
