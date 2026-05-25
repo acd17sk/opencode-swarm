@@ -39544,7 +39544,7 @@ function computeCouplingReport(tasks, cochangePairs, threshold, options) {
   const roadmap = [];
   for (const m of perModule.slice(0, roadmapTop)) {
     const pct = (m.share * 100).toFixed(0);
-    roadmap.push(`\`${m.module}\` drives ${pct}% of detected coupling (${m.conflicts} pair${m.conflicts === 1 ? "" : "s"}) \u2014 isolating it behind an interface is a high-leverage refactor.`);
+    roadmap.push(`\`${m.module}\` appears in ${pct}% of conflicting pairs (${m.conflicts} pair${m.conflicts === 1 ? "" : "s"}) \u2014 isolating it behind an interface is a high-leverage refactor.`);
   }
   return {
     taskCount: tasks.length,
@@ -39570,7 +39570,7 @@ function formatCouplingReportMarkdown(report) {
     return lines.join(`
 `);
   }
-  const pPct = (report.p * 100).toFixed(1);
+  const pPct = (report.p * 100).toFixed(2);
   lines.push(`**p = ${report.p.toFixed(3)}** (${report.conflictingPairCount} conflicting pair${report.conflictingPairCount === 1 ? "" : "s"} out of ${report.totalPairs} total \u2014 ${pPct}% of task pairs conflict)`);
   lines.push("");
   lines.push("`p` is a measured coupling coefficient \u2014 *not* a target. Lower means the plan is naturally more parallelizable. Estimates above flow from the combined path + co-change signal Capability A computes; treat them as inputs to your refactor decisions, not as established facts.");
@@ -39578,12 +39578,14 @@ function formatCouplingReportMarkdown(report) {
   if (report.perModule.length > 0) {
     lines.push("### Per-module contention");
     lines.push("");
-    lines.push("| Module | Conflicts | Share |");
+    lines.push("| Module | Conflicts | Pair coverage |");
     lines.push("|---|---:|---:|");
     for (const m of report.perModule) {
       const pct = (m.share * 100).toFixed(0);
       lines.push(`| \`${m.module}\` | ${m.conflicts} | ${pct}% |`);
     }
+    lines.push("");
+    lines.push("_Pair coverage = the fraction of conflicting pairs this module appears in. A single co-change pair attributes both endpoints, so coverage values can sum past 100%._");
     lines.push("");
   }
   if (report.roadmap.length > 0) {
@@ -39612,6 +39614,7 @@ var init_coupling_report = __esm(() => {
 });
 
 // src/commands/coupling.ts
+import { randomBytes } from "crypto";
 import * as fs9 from "fs";
 import * as path20 from "path";
 function parseArgs2(args) {
@@ -39630,8 +39633,12 @@ function parseArgs2(args) {
           parsed.parseError = "--phase requires a numeric argument";
           return parsed;
         }
+        if (!/^\d+$/.test(next)) {
+          parsed.parseError = `--phase must be a positive integer (got '${next}')`;
+          return parsed;
+        }
         const v = Number.parseInt(next, 10);
-        if (Number.isNaN(v) || v < 1) {
+        if (v < 1) {
           parsed.parseError = `--phase must be a positive integer (got '${next}')`;
           return parsed;
         }
@@ -39658,8 +39665,12 @@ function parseArgs2(args) {
           parsed.parseError = "--min-co-changes requires a numeric argument";
           return parsed;
         }
+        if (!/^\d+$/.test(next)) {
+          parsed.parseError = `--min-co-changes must be a positive integer (got '${next}')`;
+          return parsed;
+        }
         const v = Number.parseInt(next, 10);
-        if (Number.isNaN(v) || v < 1) {
+        if (v < 1) {
           parsed.parseError = `--min-co-changes must be a positive integer (got '${next}')`;
           return parsed;
         }
@@ -39690,10 +39701,17 @@ function persistReportJson(directory, report) {
   const epicDir = path20.join(directory, ".swarm", "epic");
   fs9.mkdirSync(epicDir, { recursive: true });
   const filePath = path20.join(epicDir, "coupling-report.json");
-  const tmpPath = `${filePath}.tmp.${Date.now()}`;
+  const tmpPath = `${filePath}.tmp.${randomBytes(8).toString("hex")}`;
   fs9.writeFileSync(tmpPath, `${JSON.stringify(report, null, 2)}
 `, "utf-8");
-  fs9.renameSync(tmpPath, filePath);
+  try {
+    fs9.renameSync(tmpPath, filePath);
+  } catch (err) {
+    try {
+      fs9.unlinkSync(tmpPath);
+    } catch {}
+    throw err;
+  }
   return filePath;
 }
 async function handleCouplingCommand(directory, args) {
@@ -39732,22 +39750,37 @@ Usage: /swarm coupling [--phase <n>] [--threshold <-1..1>] [--min-co-changes <n>
     npmi: parsed.threshold,
     minCoChanges: parsed.minCoChanges
   });
-  let persistTrailer = "";
+  let persistStatus = {
+    requested: false
+  };
   if (parsed.persist) {
     try {
       const writtenAt = persistReportJson(directory, report);
-      persistTrailer = `
-
-_Wrote structured report to \`${path20.relative(directory, writtenAt)}\`._`;
+      persistStatus = {
+        requested: true,
+        written: true,
+        path: path20.relative(directory, writtenAt)
+      };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      persistTrailer = `
-
-_Warning: failed to persist report (${msg})._`;
+      persistStatus = {
+        requested: true,
+        written: false,
+        error: err instanceof Error ? err.message : String(err)
+      };
     }
   }
   if (parsed.format === "json") {
-    return JSON.stringify(report, null, 2);
+    return JSON.stringify({ ...report, persist: persistStatus }, null, 2);
+  }
+  let persistTrailer = "";
+  if (persistStatus.requested && persistStatus.written) {
+    persistTrailer = `
+
+_Wrote structured report to \`${persistStatus.path}\`._`;
+  } else if (persistStatus.requested && !persistStatus.written) {
+    persistTrailer = `
+
+_Warning: failed to persist report (${persistStatus.error})._`;
   }
   return `${formatCouplingReportMarkdown(report)}${persistTrailer}`;
 }
@@ -44942,7 +44975,7 @@ var init_snapshot_writer = __esm(() => {
 
 // src/commands/handoff.ts
 import crypto4 from "crypto";
-import { renameSync as renameSync8, unlinkSync as unlinkSync4 } from "fs";
+import { renameSync as renameSync8, unlinkSync as unlinkSync5 } from "fs";
 async function handleHandoffCommand(directory, _args) {
   const handoffData = await getHandoffData(directory);
   const markdown = formatHandoffMarkdown(handoffData);
@@ -44954,7 +44987,7 @@ async function handleHandoffCommand(directory, _args) {
       renameSync8(tempPath, resolvedPath);
     } catch (renameErr) {
       try {
-        unlinkSync4(tempPath);
+        unlinkSync5(tempPath);
       } catch {}
       throw renameErr;
     }
@@ -44966,7 +44999,7 @@ async function handleHandoffCommand(directory, _args) {
       renameSync8(promptTempPath, promptPath);
     } catch (renameErr) {
       try {
-        unlinkSync4(promptTempPath);
+        unlinkSync5(promptTempPath);
       } catch {}
       throw renameErr;
     }

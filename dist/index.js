@@ -60168,7 +60168,7 @@ function computeCouplingReport(tasks, cochangePairs, threshold, options) {
   const roadmap = [];
   for (const m of perModule.slice(0, roadmapTop)) {
     const pct = (m.share * 100).toFixed(0);
-    roadmap.push(`\`${m.module}\` drives ${pct}% of detected coupling (${m.conflicts} pair${m.conflicts === 1 ? "" : "s"}) — isolating it behind an interface is a high-leverage refactor.`);
+    roadmap.push(`\`${m.module}\` appears in ${pct}% of conflicting pairs (${m.conflicts} pair${m.conflicts === 1 ? "" : "s"}) — isolating it behind an interface is a high-leverage refactor.`);
   }
   return {
     taskCount: tasks.length,
@@ -60194,7 +60194,7 @@ function formatCouplingReportMarkdown(report) {
     return lines.join(`
 `);
   }
-  const pPct = (report.p * 100).toFixed(1);
+  const pPct = (report.p * 100).toFixed(2);
   lines.push(`**p = ${report.p.toFixed(3)}** (${report.conflictingPairCount} conflicting pair${report.conflictingPairCount === 1 ? "" : "s"} out of ${report.totalPairs} total — ${pPct}% of task pairs conflict)`);
   lines.push("");
   lines.push("`p` is a measured coupling coefficient — *not* a target. Lower means the plan is naturally more parallelizable. Estimates above flow from the combined path + co-change signal Capability A computes; treat them as inputs to your refactor decisions, not as established facts.");
@@ -60202,12 +60202,14 @@ function formatCouplingReportMarkdown(report) {
   if (report.perModule.length > 0) {
     lines.push("### Per-module contention");
     lines.push("");
-    lines.push("| Module | Conflicts | Share |");
+    lines.push("| Module | Conflicts | Pair coverage |");
     lines.push("|---|---:|---:|");
     for (const m of report.perModule) {
       const pct = (m.share * 100).toFixed(0);
       lines.push(`| \`${m.module}\` | ${m.conflicts} | ${pct}% |`);
     }
+    lines.push("");
+    lines.push("_Pair coverage = the fraction of conflicting pairs this module appears in. A single co-change pair attributes both endpoints, so coverage values can sum past 100%._");
     lines.push("");
   }
   if (report.roadmap.length > 0) {
@@ -60236,6 +60238,7 @@ var init_coupling_report = __esm(() => {
 });
 
 // src/commands/coupling.ts
+import { randomBytes } from "node:crypto";
 import * as fs15 from "node:fs";
 import * as path28 from "node:path";
 function parseArgs2(args2) {
@@ -60254,8 +60257,12 @@ function parseArgs2(args2) {
           parsed.parseError = "--phase requires a numeric argument";
           return parsed;
         }
+        if (!/^\d+$/.test(next)) {
+          parsed.parseError = `--phase must be a positive integer (got '${next}')`;
+          return parsed;
+        }
         const v = Number.parseInt(next, 10);
-        if (Number.isNaN(v) || v < 1) {
+        if (v < 1) {
           parsed.parseError = `--phase must be a positive integer (got '${next}')`;
           return parsed;
         }
@@ -60282,8 +60289,12 @@ function parseArgs2(args2) {
           parsed.parseError = "--min-co-changes requires a numeric argument";
           return parsed;
         }
+        if (!/^\d+$/.test(next)) {
+          parsed.parseError = `--min-co-changes must be a positive integer (got '${next}')`;
+          return parsed;
+        }
         const v = Number.parseInt(next, 10);
-        if (Number.isNaN(v) || v < 1) {
+        if (v < 1) {
           parsed.parseError = `--min-co-changes must be a positive integer (got '${next}')`;
           return parsed;
         }
@@ -60314,10 +60325,17 @@ function persistReportJson(directory, report) {
   const epicDir = path28.join(directory, ".swarm", "epic");
   fs15.mkdirSync(epicDir, { recursive: true });
   const filePath = path28.join(epicDir, "coupling-report.json");
-  const tmpPath = `${filePath}.tmp.${Date.now()}`;
+  const tmpPath = `${filePath}.tmp.${randomBytes(8).toString("hex")}`;
   fs15.writeFileSync(tmpPath, `${JSON.stringify(report, null, 2)}
 `, "utf-8");
-  fs15.renameSync(tmpPath, filePath);
+  try {
+    fs15.renameSync(tmpPath, filePath);
+  } catch (err2) {
+    try {
+      fs15.unlinkSync(tmpPath);
+    } catch {}
+    throw err2;
+  }
   return filePath;
 }
 async function handleCouplingCommand(directory, args2) {
@@ -60356,22 +60374,37 @@ Usage: /swarm coupling [--phase <n>] [--threshold <-1..1>] [--min-co-changes <n>
     npmi: parsed.threshold,
     minCoChanges: parsed.minCoChanges
   });
-  let persistTrailer = "";
+  let persistStatus = {
+    requested: false
+  };
   if (parsed.persist) {
     try {
       const writtenAt = persistReportJson(directory, report);
-      persistTrailer = `
-
-_Wrote structured report to \`${path28.relative(directory, writtenAt)}\`._`;
+      persistStatus = {
+        requested: true,
+        written: true,
+        path: path28.relative(directory, writtenAt)
+      };
     } catch (err2) {
-      const msg = err2 instanceof Error ? err2.message : String(err2);
-      persistTrailer = `
-
-_Warning: failed to persist report (${msg})._`;
+      persistStatus = {
+        requested: true,
+        written: false,
+        error: err2 instanceof Error ? err2.message : String(err2)
+      };
     }
   }
   if (parsed.format === "json") {
-    return JSON.stringify(report, null, 2);
+    return JSON.stringify({ ...report, persist: persistStatus }, null, 2);
+  }
+  let persistTrailer = "";
+  if (persistStatus.requested && persistStatus.written) {
+    persistTrailer = `
+
+_Wrote structured report to \`${persistStatus.path}\`._`;
+  } else if (persistStatus.requested && !persistStatus.written) {
+    persistTrailer = `
+
+_Warning: failed to persist report (${persistStatus.error})._`;
   }
   return `${formatCouplingReportMarkdown(report)}${persistTrailer}`;
 }
@@ -65668,7 +65701,7 @@ var init_snapshot_writer = __esm(() => {
 
 // src/commands/handoff.ts
 import crypto4 from "node:crypto";
-import { renameSync as renameSync11, unlinkSync as unlinkSync5 } from "node:fs";
+import { renameSync as renameSync11, unlinkSync as unlinkSync6 } from "node:fs";
 async function handleHandoffCommand(directory, _args) {
   const handoffData = await getHandoffData(directory);
   const markdown = formatHandoffMarkdown(handoffData);
@@ -65680,7 +65713,7 @@ async function handleHandoffCommand(directory, _args) {
       renameSync11(tempPath, resolvedPath);
     } catch (renameErr) {
       try {
-        unlinkSync5(tempPath);
+        unlinkSync6(tempPath);
       } catch {}
       throw renameErr;
     }
@@ -65692,7 +65725,7 @@ async function handleHandoffCommand(directory, _args) {
       renameSync11(promptTempPath, promptPath);
     } catch (renameErr) {
       try {
-        unlinkSync5(promptTempPath);
+        unlinkSync6(promptTempPath);
       } catch {}
       throw renameErr;
     }
@@ -86415,7 +86448,7 @@ init_state();
 init_utils();
 init_bun_compat();
 init_utils2();
-import { renameSync as renameSync14, unlinkSync as unlinkSync11 } from "node:fs";
+import { renameSync as renameSync14, unlinkSync as unlinkSync12 } from "node:fs";
 import * as nodePath2 from "node:path";
 function createAgentActivityHooks(config3, directory) {
   if (config3.hooks?.agent_activity === false) {
@@ -86493,7 +86526,7 @@ async function doFlush(directory) {
       renameSync14(tempPath, path65);
     } catch (writeError) {
       try {
-        unlinkSync11(tempPath);
+        unlinkSync12(tempPath);
       } catch {}
       throw writeError;
     }
@@ -115856,7 +115889,7 @@ import {
   mkdirSync as mkdirSync34,
   readFileSync as readFileSync65,
   renameSync as renameSync21,
-  unlinkSync as unlinkSync16,
+  unlinkSync as unlinkSync17,
   writeFileSync as writeFileSync25
 } from "node:fs";
 import path132 from "node:path";
@@ -116090,7 +116123,7 @@ function writePhaseCouncilEvidence(workingDir, synthesis) {
     renameSync21(tempFile, evidenceFile);
   } finally {
     if (existsSync75(tempFile)) {
-      unlinkSync16(tempFile);
+      unlinkSync17(tempFile);
     }
   }
 }
@@ -118340,7 +118373,7 @@ import * as path138 from "node:path";
 
 // src/mutation/engine.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { unlinkSync as unlinkSync17, writeFileSync as writeFileSync26 } from "node:fs";
+import { unlinkSync as unlinkSync18, writeFileSync as writeFileSync26 } from "node:fs";
 import * as path137 from "node:path";
 
 // src/mutation/equivalence.ts
@@ -118585,7 +118618,7 @@ async function executeMutation(patch, testCommand, _testFiles, workingDir) {
         revertError = new Error(`Failed to revert mutation ${patch.id}: ${revertErr}. Working tree may be dirty.`);
       }
       try {
-        unlinkSync17(patchFile);
+        unlinkSync18(patchFile);
       } catch (_unlinkErr) {}
     }
   }
