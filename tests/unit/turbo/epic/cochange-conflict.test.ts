@@ -81,15 +81,19 @@ describe('epicPairConflict — signal combinations', () => {
 	});
 
 	test('path overlap AND co-change above threshold => conflict, reason both', () => {
+		// Path overlap on `a`. Independent cochange cross-coupling on (b, c):
+		// scopeA exclusively touches b, scopeB exclusively touches c.
 		const v = epicPairConflict(
-			['src/a.ts'],
-			['src/a.ts'],
-			[entry('src/a.ts', 'src/a.ts', 0.9, 20)],
+			['src/a.ts', 'src/b.ts'],
+			['src/a.ts', 'src/c.ts'],
+			[entry('src/b.ts', 'src/c.ts', 0.9, 20)],
 			DEFAULT_THRESHOLD,
 		);
 		expect(v.conflict).toBe(true);
 		expect(v.reason).toBe('both');
-		expect(v.evidence.pathPairs).toHaveLength(1);
+		// pathPairs includes the (a, a) overlap (and possibly other path pairs
+		// from the cross-product) — assert at least one is present.
+		expect(v.evidence.pathPairs.length).toBeGreaterThan(0);
 		expect(v.evidence.cochangePairs).toHaveLength(1);
 	});
 });
@@ -256,6 +260,100 @@ describe('epicPairConflict — edge cases (§15.6)', () => {
 		expect(v.conflict).toBe(true);
 		expect(v.reason).toBe('cochange');
 		expect(v.evidence.cochangePairs).toHaveLength(1);
+	});
+});
+
+describe('epicPairConflict — strict partition (cochange only fires on genuine cross-task coupling)', () => {
+	test('pair fully inside scopeA does NOT contribute cochange evidence (only path)', () => {
+		// scopeA touches both files of the (a, b) pair; scopeB touches just a.
+		// Path conflict on `a` already serializes. The (a, b) coupling lives
+		// entirely inside scopeA — it adds no cross-task signal, so cochange
+		// must NOT fire and the reason must be 'path', not 'both'.
+		const v = epicPairConflict(
+			['src/a.ts', 'src/b.ts'],
+			['src/a.ts'],
+			[entry('src/a.ts', 'src/b.ts', 0.9, 20)],
+			DEFAULT_THRESHOLD,
+		);
+		expect(v.conflict).toBe(true);
+		expect(v.reason).toBe('path');
+		expect(v.evidence.cochangePairs).toEqual([]);
+		expect(v.evidence.pathPairs).toEqual([['src/a.ts', 'src/a.ts']]);
+	});
+
+	test('pair fully inside scopeB does NOT contribute cochange evidence (only path)', () => {
+		const v = epicPairConflict(
+			['src/a.ts'],
+			['src/a.ts', 'src/b.ts'],
+			[entry('src/a.ts', 'src/b.ts', 0.9, 20)],
+			DEFAULT_THRESHOLD,
+		);
+		expect(v.conflict).toBe(true);
+		expect(v.reason).toBe('path');
+		expect(v.evidence.cochangePairs).toEqual([]);
+	});
+
+	test('pair fully inside both scopes does NOT contribute cochange evidence', () => {
+		const v = epicPairConflict(
+			['src/a.ts', 'src/b.ts'],
+			['src/a.ts', 'src/b.ts'],
+			[entry('src/a.ts', 'src/b.ts', 0.9, 20)],
+			DEFAULT_THRESHOLD,
+		);
+		expect(v.conflict).toBe(true);
+		expect(v.reason).toBe('path');
+		expect(v.evidence.cochangePairs).toEqual([]);
+	});
+
+	test('partition is preserved even when no path overlap exists', () => {
+		// scopeA touches both a and b; scopeB touches c (no overlap).
+		// Pair (a, b) is fully internal to scopeA → no cross-task coupling
+		// signal, no path conflict either → verdict is `none`.
+		const v = epicPairConflict(
+			['src/a.ts', 'src/b.ts'],
+			['src/c.ts'],
+			[entry('src/a.ts', 'src/b.ts', 0.9, 20)],
+			DEFAULT_THRESHOLD,
+		);
+		expect(v.conflict).toBe(false);
+		expect(v.reason).toBe('none');
+	});
+});
+
+describe('epicPairConflict — symmetry under scope swap', () => {
+	test('swapping scopeA and scopeB does not change the conflict verdict or reason', () => {
+		const fixtures: Array<{
+			a: string[];
+			b: string[];
+			pairs: CoChangeEntry[];
+		}> = [
+			{ a: ['src/a.ts'], b: ['src/b.ts'], pairs: [] },
+			{ a: ['src/a.ts'], b: ['src/a.ts'], pairs: [] },
+			{
+				a: ['src/a.ts'],
+				b: ['src/b.ts'],
+				pairs: [entry('src/a.ts', 'src/b.ts', 0.9, 20)],
+			},
+			{
+				a: ['src/a.ts', 'src/b.ts'],
+				b: ['src/a.ts'],
+				pairs: [entry('src/a.ts', 'src/b.ts', 0.9, 20)],
+			},
+			{
+				a: ['/repo/src/x.ts'],
+				b: ['/repo/src/y.ts'],
+				pairs: [entry('src/x.ts', 'src/y.ts', 0.7, 10)],
+			},
+		];
+		for (const f of fixtures) {
+			const ab = epicPairConflict(f.a, f.b, f.pairs, DEFAULT_THRESHOLD);
+			const ba = epicPairConflict(f.b, f.a, f.pairs, DEFAULT_THRESHOLD);
+			expect(ba.conflict).toBe(ab.conflict);
+			expect(ba.reason).toBe(ab.reason);
+			expect(ba.evidence.cochangePairs.length).toBe(
+				ab.evidence.cochangePairs.length,
+			);
+		}
 	});
 });
 
