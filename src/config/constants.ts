@@ -286,6 +286,7 @@ export const AGENT_TOOL_MAP: Record<AgentName, ToolName[]> = {
 		'lean_turbo_review',
 		'lean_turbo_run_phase',
 		'lean_turbo_status',
+		'epic_run_phase',
 	],
 	explorer: [
 		'complexity_hotspots',
@@ -666,6 +667,8 @@ export const TOOL_DESCRIPTIONS: Partial<Record<ToolName, string>> = {
 		'Use when Lean Turbo is active and you want to execute all tasks in a phase in parallel lanes.',
 	lean_turbo_status:
 		'returns Lean Turbo configuration and active status for the current session',
+	epic_run_phase:
+		'Execute a phase under Epic Mode (Capability C). Computes the plan-wide coupling coefficient p, gates on the activation threshold + hot-module check + greenfield rule, and either dispatches Lean Turbo for parallel execution (when promoted) or returns a "demoted to serial" verdict. Use when /swarm epic is on for the session.',
 };
 
 // Runtime validation: ensure all tool names in AGENT_TOOL_MAP are registered

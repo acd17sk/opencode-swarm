@@ -121,6 +121,7 @@ export {
 	detectFlakyTests,
 	isTestQuarantined,
 } from '../test-impact/flaky-detector.js';
+export { epic_run_phase } from './epic-run-phase';
 export { generate_mutants } from './generate-mutants';
 export { lean_turbo_acquire_locks } from './lean-turbo-acquire-locks';
 export { lean_turbo_plan_lanes } from './lean-turbo-plan-lanes';
