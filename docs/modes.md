@@ -519,6 +519,63 @@ The `co_change_analyzer` is composed (not reimplemented) via its existing `_inte
 
 **Persists nothing by default.** With `--persist`, writes a structured JSON document to `.swarm/epic/coupling-report.json` via atomic `tmp + rename` (matching the lean-turbo state pattern), inside the project root.
 
+### Capability C — Activation gate and the `epic` mode itself
+
+The `epic` mode auto-decides parallel-vs-serial per plan. When on, the architect calls `epic_run_phase(phase)` *instead of* `lean_turbo_run_phase(phase)`; that tool computes the coupling coefficient `p` over the whole plan, gates on three independent checks, and either:
+
+- **Promotes** → invokes `LeanTurboRunner` for the given phase (composition, no edits to Lean Turbo).
+- **Demotes** → returns a structured "serial" verdict so the caller falls back to the standard serial path.
+
+#### The three gates (all must pass for promotion)
+
+1. **p-threshold.** `p ≤ turbo.epic.mode.activation_threshold` (default `0.3`). Plans above this are deemed too coupled to parallelize safely.
+2. **Hot-module.** No task in scope may touch a Lean Turbo global file (`package.json`, lockfiles, barrels, build config) or protected path (`auth/`, `crypto/`, `secret/`, `.env`, …). Reuses Lean Turbo's existing lists — no new list to maintain.
+3. **Greenfield (brief §4.2 rule).** `commitsObserved ≥ turbo.epic.mode.min_commits_for_signal` (default `20`). A sparse co-change history is signal-absent — promotion needs positive evidence, not just absence of failure.
+
+Default-serial-promote-on-proof: any failing gate forces `demote`. Promotion requires all three gates green.
+
+#### Per-plan, not per-phase
+
+The verdict is computed over the **entire plan's task graph** (every task across every phase), not just the phase being dispatched. The brief's "epic" vocabulary maps onto the codebase's one-plan-per-feature convention (a `Plan` is bound to a single `.swarm/spec.md` via `specMtime`/`specHash`), so per-plan activation IS per-epic activation. Lean Turbo's existing per-task degradation continues to operate inside each promoted phase — coupled tasks within an otherwise-promoted plan are still individually serialized by `planLeanTurboLanes`.
+
+#### Slash command
+
+```
+/swarm epic on            # enable for this session
+/swarm epic off           # disable
+/swarm epic               # toggle
+/swarm epic status        # show current state + last decision rationale
+/swarm epic decide        # read-only what-if: show the verdict without dispatching
+```
+
+Toggling only mutates session and durable state (`.swarm/epic-state.json`); execution is gated by the architect choosing to call `epic_run_phase` over `lean_turbo_run_phase`.
+
+#### Configuration
+
+```json
+{
+  "turbo": {
+    "epic": {
+      "mode": {
+        "enabled": false,
+        "activation_threshold": 0.3,
+        "min_commits_for_signal": 20
+      }
+    }
+  }
+}
+```
+
+| Key | Default | Effect |
+|---|---|---|
+| `turbo.epic.mode.enabled` | `false` | Master gate. With this off, no Epic Mode code runs. |
+| `turbo.epic.mode.activation_threshold` | `0.3` | Plan-wide `p` ceiling for promotion. Higher values relax the gate; lower values are more conservative. |
+| `turbo.epic.mode.min_commits_for_signal` | `20` | Greenfield rule. Co-change history with fewer than this many commits is considered too sparse to trust. |
+
+#### Promotion evidence
+
+After every `epic_run_phase` invocation, one JSON line is appended to `.swarm/evidence/epic-promotions.jsonl` with the timestamp, sessionID, phase, decision, `p`, gate rationale, and blocking reasons. This is the audit trail — never overwritten, only appended; tolerates partial-write of the trailing line.
+
 ---
 
 ## FAQ
