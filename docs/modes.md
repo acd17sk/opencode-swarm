@@ -448,6 +448,60 @@ Lean Turbo is configured via `turbo` and `turbo.lean` in `.opencode/opencode-swa
 
 ---
 
+## Epic Mode (preview)
+
+> **Status: Capability A only.** Epic Mode is an upcoming optional execution mode that augments Lean Turbo with autonomous, coupling-aware lane planning. As of this release, only its first capability — a co-change-aware pair-conflict module — exists in the codebase. The mode itself (`/swarm` toggles, runtime activation, etc.) is not yet registered; the new module is dormant until consumed by a later capability.
+
+### What Epic Mode Is
+
+Epic Mode composes Lean Turbo without modifying it. Where Lean Turbo asks *"how do I run these tasks in parallel safely?"*, Epic Mode adds *"should this work be parallel at all, and what is making it serial?"* — by measuring coupling from git history in addition to file paths.
+
+The dependency direction is strictly one-way: Epic Mode depends on Lean Turbo; Lean Turbo never depends on Epic Mode. No file under `src/turbo/lean/` is modified.
+
+### Capability A — Co-change-aware Pair Conflict
+
+`src/turbo/epic/cochange-conflict.ts` exports `epicPairConflict(scopeA, scopeB, cochangePairs, threshold)` — a pure function that combines:
+
+1. Lean Turbo's existing path-based pair test (`pathsConflict` from `src/turbo/lean/conflicts.ts`), and
+2. A git co-change signal sourced from the existing `co_change_analyzer` tool, threshold-gated by NPMI and raw co-change count.
+
+The combination is **conservative**: the co-change signal can only escalate a verdict from "no conflict" to "conflict". It can never downgrade a path-based conflict. The data source (`src/turbo/epic/cochange-source.ts`) caches per-project results keyed on `git HEAD`, with FIFO eviction at 10 directories, and falls back to "signal absent" (returning `[]`) on greenfield repos, non-git directories, or git errors — so a missing signal is never silently mistaken for "no conflict".
+
+### Configuration
+
+```json
+{
+  "turbo": {
+    "epic": {
+      "cochange": {
+        "enabled": false,
+        "threshold": 0.6,
+        "min_co_changes": 5
+      }
+    }
+  }
+}
+```
+
+| Key | Default | Effect |
+|---|---|---|
+| `turbo.epic.cochange.enabled` | `false` | Master gate. With this off, no Epic-mode code runs. |
+| `turbo.epic.cochange.threshold` | `0.6` | NPMI floor (range `[-1, 1]`) for a pair to contribute a co-change conflict signal. |
+| `turbo.epic.cochange.min_co_changes` | `5` | Minimum raw co-change count required before NPMI is considered, to suppress small-sample noise. |
+
+With `enabled: false` (the default), behavior is identical to before — verified by `tests/unit/turbo/epic/disabled-passthrough.test.ts`.
+
+### Composition with Lean Turbo
+
+Epic Mode imports — and **never modifies** — the following from Lean Turbo:
+
+- `pathsConflict`, `normalizePath` from `src/turbo/lean/conflicts.ts`
+- The output type of the existing `co_change_analyzer` tool (`src/tools/co-change-analyzer.ts`)
+
+The `co_change_analyzer` is composed (not reimplemented) via its existing `_internals.parseGitLog` + `_internals.buildCoChangeMatrix` primitives, so Epic Mode benefits from any future analyzer improvements automatically.
+
+---
+
 ## FAQ
 
 **Why is the README's "Strict" mode not a session command?**  
@@ -470,5 +524,5 @@ The lane planner (`src/turbo/lean/planner.ts`) uses five conflict rules: exact-f
 ## Related
 
 - [Commands Reference](commands.md) — `/swarm turbo`, `/swarm full-auto`, `/swarm status`
-- [Configuration](configuration.md) — `execution_mode`, `full_auto.*`, `turbo.lean.*`
+- [Configuration](configuration.md) — `execution_mode`, `full_auto.*`, `turbo.lean.*`, `turbo.epic.*`
 - [Architecture Deep Dive](architecture.md) — QA gates, Stage B, Tier 3
