@@ -60,12 +60,29 @@ export interface GetCoChangePairsOptions {
 
 async function readGitHead(directory: string): Promise<string | null> {
 	try {
+		// AGENTS.md invariant 3: explicit cwd + timeout. `execFile` (promisified)
+		// does not surface a ChildProcess handle, so `proc.kill()` in `finally`
+		// is not applicable — the `timeout` option triggers the kill. `execFile`
+		// also does not accept a `stdio` option (that's `spawn`'s API); `git
+		// rev-parse HEAD` does not read stdin so the inherited pipe does not
+		// block the child. Matches the precedent in `src/tools/co-change-analyzer.ts`.
 		const { stdout } = await _internals.execFile('git', ['rev-parse', 'HEAD'], {
 			cwd: directory,
 			timeout: GIT_HEAD_TIMEOUT_MS,
 		});
 		const head = String(stdout).trim();
-		return head.length > 0 ? head : null;
+		// Defensive: a healthy `git rev-parse HEAD` prints exactly one short
+		// line — a SHA or symbolic ref. Reject anything with whitespace
+		// (multi-line banners, warnings) or non-ref characters so a
+		// misconfigured git cannot poison the cache key with garbage.
+		if (
+			head.length === 0 ||
+			/\s/.test(head) ||
+			!/^[A-Za-z0-9_./-]+$/.test(head)
+		) {
+			return null;
+		}
+		return head;
 	} catch {
 		return null;
 	}
@@ -98,9 +115,19 @@ export async function getCoChangePairs(
 	}
 
 	const maxCommits = options?.maxCommitsToAnalyze ?? DEFAULT_MAX_COMMITS;
-	const commitMap = await _internals.parseGitLog(directory, maxCommits);
-	const matrix = _internals.buildCoChangeMatrix(commitMap);
-	const entries = Array.from(matrix.values());
+	let entries: CoChangeEntry[];
+	try {
+		const commitMap = await _internals.parseGitLog(directory, maxCommits);
+		const matrix = _internals.buildCoChangeMatrix(commitMap);
+		entries = Array.from(matrix.values());
+	} catch {
+		// Defense in depth: today `parseGitLog` catches internally and returns
+		// an empty Map on any failure, so this branch is unreachable. If a
+		// future analyzer change lets either primitive throw, fail soft to
+		// preserve the documented "signal absent ⇒ []" contract rather than
+		// leaking exceptions through a planning path.
+		return [];
+	}
 
 	if (!cache.has(directory) && cache.size >= MAX_TRACKED_DIRS) {
 		const oldestKey = cache.keys().next().value;
