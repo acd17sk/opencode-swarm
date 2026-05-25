@@ -967,3 +967,16 @@ Behavioral changes:
 
 Do NOT skip phase reviewer/critic when configured. Degraded and serialized tasks MUST still go through full Stage B.
 `;
+
+export const EPIC_MODE_BANNER = `## 🧭 EPIC MODE ACTIVE
+
+Epic Mode is the autonomous coupling-aware layer that decides per plan whether to use Lean Turbo (parallel) or fall back to serial execution.
+
+Behavioral changes:
+- **When you need to execute a phase, call the \`epic_run_phase(directory, phase, sessionID)\` tool INSTEAD of \`lean_turbo_run_phase(...)\`.** The epic tool computes the plan-wide coupling coefficient \`p\` and gates on three checks (p-threshold, hot-module, greenfield), then either invokes Lean Turbo for parallel execution (when promoted) or returns a structured "demoted" verdict (when any gate fails).
+- **On a "demoted" verdict, fall back to the standard per-task serial flow** for that phase (delegate to coder, run Stage B per task, etc.). Do not attempt to invoke \`lean_turbo_run_phase\` after a demote — Epic Mode has already decided that this plan is too coupled to parallelize safely.
+- **On a "promoted" verdict, the tool already ran Lean Turbo** for that phase; the result includes \`lanes\`, \`degradedTasks\`, \`serializedTasks\` just like \`lean_turbo_run_phase\` would have produced. Phase reviewer + critic are still required at \`phase_complete\` per Lean Turbo's existing rules.
+- Each \`epic_run_phase\` invocation appends one record to \`.swarm/evidence/epic-promotions.jsonl\` with the verdict and rationale. \`/swarm epic status\` shows the most recent decision; \`/swarm epic decide\` previews the verdict without dispatching.
+
+Do NOT skip phase reviewer/critic. Epic Mode does not change Stage B requirements — it only chooses whether to parallelize.
+`;

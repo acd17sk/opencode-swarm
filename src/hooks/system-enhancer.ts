@@ -11,6 +11,7 @@ import * as path from 'node:path';
 import type { PluginConfig } from '../config';
 import {
 	DEFAULT_SCORING_CONFIG,
+	EPIC_MODE_BANNER,
 	FULL_AUTO_BANNER,
 	LEAN_TURBO_BANNER,
 	OPENCODE_NATIVE_AGENTS,
@@ -111,6 +112,7 @@ import {
 	getContextBudgetReport,
 } from '../services';
 import {
+	hasActiveEpicMode,
 	hasActiveFullAuto,
 	hasActiveLeanTurbo,
 	hasActiveTurboMode,
@@ -1180,7 +1182,8 @@ ${handoffContent}`;
 							if (
 								hasActiveTurboMode(sessionIdBanner) ||
 								hasActiveFullAuto(sessionIdBanner) ||
-								hasActiveLeanTurbo(sessionIdBanner)
+								hasActiveLeanTurbo(sessionIdBanner) ||
+								hasActiveEpicMode(sessionIdBanner)
 							) {
 								if (hasActiveTurboMode(sessionIdBanner)) {
 									tryInject(TURBO_MODE_BANNER);
@@ -1190,6 +1193,13 @@ ${handoffContent}`;
 								}
 								if (hasActiveLeanTurbo(sessionIdBanner)) {
 									tryInject(LEAN_TURBO_BANNER);
+								}
+								// Epic Mode banner — instructs the architect to use
+								// `epic_run_phase` instead of `lean_turbo_run_phase`
+								// for the next phase. Injected last so it appears
+								// closest to the architect's other decision context.
+								if (hasActiveEpicMode(sessionIdBanner)) {
+									tryInject(EPIC_MODE_BANNER);
 								}
 							}
 
@@ -1733,12 +1743,13 @@ ${handoffContent}`;
 						stripKnownSwarmPrefix(activeAgent_retro_b) === 'architect';
 
 					if (isArchitect_b) {
-						// v6.x: Turbo/Full-Auto/Lean-Turbo banner injection for architect (Path B)
+						// v6.x: Turbo/Full-Auto/Lean-Turbo/Epic banner injection for architect (Path B)
 						const sessionIdBanner_b = _input.sessionID;
 						if (
 							hasActiveTurboMode(sessionIdBanner_b) ||
 							hasActiveFullAuto(sessionIdBanner_b) ||
-							hasActiveLeanTurbo(sessionIdBanner_b)
+							hasActiveLeanTurbo(sessionIdBanner_b) ||
+							hasActiveEpicMode(sessionIdBanner_b)
 						) {
 							if (hasActiveTurboMode(sessionIdBanner_b)) {
 								candidates.push({
@@ -1766,6 +1777,16 @@ ${handoffContent}`;
 									kind: 'agent_context' as ContextCandidate['kind'],
 									text: LEAN_TURBO_BANNER,
 									tokens: estimateTokens(LEAN_TURBO_BANNER),
+									priority: 1,
+									metadata: { contentType: 'prose' as ContentType },
+								});
+							}
+							if (hasActiveEpicMode(sessionIdBanner_b)) {
+								candidates.push({
+									id: `candidate-${idCounter++}`,
+									kind: 'agent_context' as ContextCandidate['kind'],
+									text: EPIC_MODE_BANNER,
+									tokens: estimateTokens(EPIC_MODE_BANNER),
 									priority: 1,
 									metadata: { contentType: 'prose' as ContentType },
 								});
