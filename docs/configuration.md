@@ -520,6 +520,34 @@ Epic Mode is an upcoming optional execution mode that augments Lean Turbo with a
 }
 ```
 
+### `turbo.epic.mode` — Epic Mode activation gate (Capability C, preview)
+
+Epic Mode auto-decides per plan whether to invoke Lean Turbo's parallel planner or fall back to serial, based on the coupling coefficient `p`. See [Epic Mode (preview)](modes.md#capability-c--activation-gate-and-the-epic-mode-itself) for the design.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `mode.enabled` | boolean | `false` | Master gate for Epic Mode activation. When off, no Epic-mode runtime code runs. |
+| `mode.activation_threshold` | number | `0.3` | Plan-wide `p` ceiling. Plans with `p ≤ activation_threshold` are eligible for parallel promotion; plans above are forced serial. |
+| `mode.min_commits_for_signal` | number | `20` | Greenfield rule. A co-change history with fewer than this many commits is treated as too sparse — promotion is blocked regardless of `p`. |
+
+**Example** — Enable Epic Mode with a strict threshold and dense-history requirement:
+
+```json
+{
+  "turbo": {
+    "strategy": "lean",
+    "epic": {
+      "mode": {
+        "enabled": true,
+        "activation_threshold": 0.2,
+        "min_commits_for_signal": 50
+      },
+      "cochange": { "enabled": true }
+    }
+  }
+}
+```
+
 ## QA gates reference
 
 The QA gate profile (per-plan, persisted in the project DB) controls which quality gates fire during a plan's execution. Configure interactively via the gate-selection dialogue surfaced in MODE: SPECIFY step 5b, MODE: BRAINSTORM Phase 6, or the MODE: PLAN inline path. Programmatic configuration via `set_qa_gates` (architect-only) or `/swarm qa-gates enable <gate>...`.
