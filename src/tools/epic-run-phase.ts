@@ -40,6 +40,7 @@ import {
 import { readTaskScopes as readTaskScopes_import } from '../turbo/lean/conflicts.js';
 import type { LaneResult } from '../turbo/lean/runner.js';
 import { LeanTurboRunner as LeanTurboRunner_import } from '../turbo/lean/runner.js';
+import * as logger from '../utils/logger.js';
 import { createSwarmTool } from './create-tool.js';
 
 export interface EpicRunPhaseArgs {
@@ -144,7 +145,7 @@ export async function executeEpicRunPhase(
 	);
 
 	// Best-effort persist of the decision rationale. Evidence-write failure
-	// must not block the actual run — log and continue.
+	// alone is an audit-trail miss, not a safety issue — log and continue.
 	try {
 		_internals.appendPromotionEvidence(directory, {
 			timestamp: new Date().toISOString(),
@@ -153,14 +154,16 @@ export async function executeEpicRunPhase(
 			verdict,
 		});
 	} catch (err) {
-		console.warn(
-			'[epic_run_phase] promotion-evidence append failed:',
-			err instanceof Error ? err.message : String(err),
+		logger.warn(
+			`[epic_run_phase] promotion-evidence append failed: ${err instanceof Error ? err.message : String(err)}`,
 		);
 	}
 
-	// Mirror the decision into the session state so `/swarm epic status`
-	// can show the most recent rationale without re-reading the JSONL.
+	// Mirror the decision into the session state so `/swarm epic status` can
+	// show the most recent rationale. Unlike the evidence write above, a
+	// failure here means the durable state subsystem is broken (corrupt
+	// file / fail-closed marker set) — fail closed and refuse to dispatch
+	// rather than executing without reliable state.
 	try {
 		_internals.recordEpicDecision(directory, sessionID, {
 			decidedAt: new Date().toISOString(),
@@ -170,10 +173,16 @@ export async function executeEpicRunPhase(
 			blockingReasons: verdict.blockingReasons,
 		});
 	} catch (err) {
-		console.warn(
-			'[epic_run_phase] recordEpicDecision failed:',
-			err instanceof Error ? err.message : String(err),
+		const msg = err instanceof Error ? err.message : String(err);
+		logger.error(
+			`[epic_run_phase] recordEpicDecision failed, refusing to dispatch: ${msg}`,
 		);
+		return {
+			success: false,
+			verdict,
+			reason: 'epic-state-unreadable',
+			errors: [msg],
+		};
 	}
 
 	if (verdict.decision === 'demote') {
@@ -217,7 +226,9 @@ export async function executeEpicRunPhase(
 				await runner.cleanupAfterSuccess();
 			}
 		} catch (cleanupError) {
-			console.error('[epic_run_phase] runner cleanup failed:', cleanupError);
+			logger.error(
+				`[epic_run_phase] runner cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+			);
 		}
 	}
 
