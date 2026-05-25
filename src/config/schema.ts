@@ -1443,6 +1443,36 @@ export const EpicConfigSchema = z
 			})
 			.strict()
 			.optional(),
+		/**
+		 * Epic mode activation settings (Capability C). When `enabled`, the
+		 * `/swarm epic` command and `epic_run_phase` tool become usable; they
+		 * compute `p` over the plan, gate on the activation threshold + hot
+		 * modules + greenfield rule, and either invoke Lean Turbo's lane
+		 * planner (when promoted) or fall back to the standard serial path
+		 * (when demoted). Default off — opt-in.
+		 */
+		mode: z
+			.object({
+				/** Master gate for Epic Mode activation. Default off; opt-in. */
+				enabled: z.boolean().default(false),
+				/**
+				 * Activation threshold for `p` (the coupling coefficient computed
+				 * over the plan). Plans with `p <= activation_threshold` are
+				 * eligible for parallel promotion; plans above this threshold are
+				 * forced serial. Conservative default — most plans below this are
+				 * genuinely parallelizable.
+				 */
+				activation_threshold: z.number().min(0).max(1).default(0.3),
+				/**
+				 * Greenfield rule (brief §4.2). Co-change history with fewer than
+				 * this many commits is treated as too sparse to trust; the plan is
+				 * forced serial regardless of `p`. Matches `co_change_analyzer`'s
+				 * own minimum-commits floor.
+				 */
+				min_commits_for_signal: z.number().int().min(1).default(20),
+			})
+			.strict()
+			.optional(),
 	})
 	.strict();
 
