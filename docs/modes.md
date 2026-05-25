@@ -500,6 +500,25 @@ Epic Mode imports — and **never modifies** — the following from Lean Turbo:
 
 The `co_change_analyzer` is composed (not reimplemented) via its existing `_internals.parseGitLog` + `_internals.buildCoChangeMatrix` primitives, so Epic Mode benefits from any future analyzer improvements automatically.
 
+### Capability B — Coupling KPI + decoupling roadmap
+
+`/swarm coupling` is a **read-only diagnostic** that computes a coupling coefficient `p` for the current plan and ranks the modules that drive the most detected conflicts. It composes Capability A's conflict predicate over every task pair, so the report shows exactly what the future epic-mode planner *would* see if asked.
+
+```
+/swarm coupling                                # whole plan, markdown to stdout
+/swarm coupling --phase 2                      # scope to phase 2
+/swarm coupling --threshold 0.7                # what-if a stricter NPMI floor
+/swarm coupling --min-co-changes 10            # what-if a stricter count floor
+/swarm coupling --format json                  # machine-readable
+/swarm coupling --persist                      # also write .swarm/epic/coupling-report.json
+```
+
+**Output structure.** A short header (`p = 0.NNN`, X conflicting pairs out of Y), a per-module contention table sorted by conflict count, a decoupling roadmap (top-5 modules with their share of detected coupling), and a conflicting-task-pairs table showing each pair's reason (`path` / `cochange` / `both`) plus evidence counts. All figures are explicitly framed as *estimates*, not measured production outcomes (per design rule §4.2 "quantitative claims are estimates").
+
+**Independent of the runtime gate.** `/swarm coupling` runs whether or not `turbo.epic.cochange.enabled` is set. The config gate is for the *runtime* planner integration that ships later; the command itself is a what-if / diagnostic tool, useful before you opt the runtime in.
+
+**Persists nothing by default.** With `--persist`, writes a structured JSON document to `.swarm/epic/coupling-report.json` via atomic `tmp + rename` (matching the lean-turbo state pattern), inside the project root.
+
 ---
 
 ## FAQ
