@@ -521,9 +521,7 @@ The `co_change_analyzer` is composed (not reimplemented) via its existing `_inte
 
 ### Capability C — Activation gate and the `epic` mode itself
 
-The `epic` mode auto-decides parallel-vs-serial per plan. When on, the architect calls `epic_run_phase(phase)` *instead of* `lean_turbo_run_phase(phase)`; that tool computes the coupling coefficient `p` over the whole plan, gates on three independent checks, and either:
-
-> **Note — dispatching is manual today.** Enabling `/swarm epic on` toggles session state but the architect's prompt does not yet know to call `epic_run_phase` automatically. The user must instruct the architect to use `epic_run_phase(phase)` for the next phase when Epic Mode is on. A future capability may add a system-enhancer hook that injects this guidance into the architect's context; that auto-wiring is intentionally out of scope for the initial Epic Mode release.
+The `epic` mode auto-decides parallel-vs-serial per plan. When on, the architect automatically calls `epic_run_phase(phase)` *instead of* `lean_turbo_run_phase(phase)`; that tool computes the coupling coefficient `p` over the whole plan, gates on three independent checks, and either:
 
 
 - **Promotes** → invokes `LeanTurboRunner` for the given phase (composition, no edits to Lean Turbo).
@@ -551,7 +549,17 @@ The verdict is computed over the **entire plan's task graph** (every task across
 /swarm epic decide        # read-only what-if: show the verdict without dispatching
 ```
 
-Toggling only mutates session and durable state (`.swarm/epic-state.json`); execution is gated by the architect choosing to call `epic_run_phase` over `lean_turbo_run_phase`.
+Toggling mutates session state, the durable `.swarm/epic-state.json`, and the in-memory `session.epicModeActive` flag. The system-enhancer hook reads that flag on every architect turn and injects an `EPIC_MODE_BANNER` into the prompt instructing the architect to use `epic_run_phase` instead of `lean_turbo_run_phase`.
+
+You can also enable Epic Mode together with Lean Turbo via the unified turbo subcommand:
+
+```
+/swarm turbo epic on      # enables Lean Turbo + Epic Mode together
+/swarm turbo epic off     # disables both
+/swarm turbo epic         # toggles
+```
+
+`/swarm epic` remains as the epic-only toggle that does not also flip Lean Turbo session state (useful if a user wants the epic decision layer without Lean Turbo's session banners showing).
 
 #### Configuration
 
