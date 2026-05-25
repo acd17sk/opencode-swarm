@@ -276,6 +276,66 @@ describe('executeEpicRunPhase — promotion path', () => {
 	});
 });
 
+describe('executeEpicRunPhase — fail-closed on state-unreadable', () => {
+	test('recordEpicDecision throw causes fail-closed before dispatch', async () => {
+		let runnerInvoked = false;
+		class TrackingRunner {
+			runPhase = async () => {
+				runnerInvoked = true;
+				return { ok: true };
+			};
+			cleanupAfterSuccess = async () => {};
+			cleanupAfterFailure = async () => {};
+		}
+		_internals.LeanTurboRunner = TrackingRunner as never;
+		_internals.recordEpicDecision = (() => {
+			throw new Error('Epic state is unreadable for /fake');
+		}) as never;
+
+		const result = await executeEpicRunPhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		expect(result.success).toBe(false);
+		expect(result.reason).toBe('epic-state-unreadable');
+		expect(result.errors).toBeDefined();
+		expect(result.errors?.[0]).toContain('unreadable');
+		// And critically: LeanTurboRunner was NOT invoked.
+		expect(runnerInvoked).toBe(false);
+		// The verdict is still returned (the decision was computed before
+		// the state write attempted).
+		expect(result.verdict?.decision).toBe('promote');
+	});
+
+	test('appendPromotionEvidence throw does NOT cause fail-closed (audit-only)', async () => {
+		// Evidence-write failure is an audit-trail miss, not a safety
+		// issue — execution still proceeds.
+		let runnerInvoked = false;
+		class TrackingRunner {
+			runPhase = async () => {
+				runnerInvoked = true;
+				return { ok: true };
+			};
+			cleanupAfterSuccess = async () => {};
+			cleanupAfterFailure = async () => {};
+		}
+		_internals.LeanTurboRunner = TrackingRunner as never;
+		_internals.appendPromotionEvidence = (() => {
+			throw new Error('simulated EROFS');
+		}) as never;
+
+		const result = await executeEpicRunPhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		expect(result.success).toBe(true);
+		expect(result.reason).toBe('promoted');
+		expect(runnerInvoked).toBe(true);
+	});
+});
+
 describe('executeEpicRunPhase — per-plan activation (Q1)', () => {
 	test('decides over the whole plan, not just the requested phase', async () => {
 		stub.plan = {
