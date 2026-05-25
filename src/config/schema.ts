@@ -1371,27 +1371,30 @@ export type LeanTurboConfig = z.infer<typeof LeanTurboConfigSchema>;
  * With `cochange.enabled: false` (the default), no Epic-mode code runs in any
  * existing flow — behavior is identical to upstream Lean Turbo.
  */
-export const EpicConfigSchema = z.object({
-	cochange: z
-		.object({
-			/** Master gate for the co-change conflict signal. Default off; opt-in. */
-			enabled: z.boolean().default(false),
-			/**
-			 * NPMI floor for considering a file pair "historically co-changing".
-			 * Range matches co_change_analyzer's npmi range [-1, 1]. The analyzer's
-			 * discovery default is 0.5; the Epic default is set higher (0.6) so the
-			 * signal only escalates clearly-coupled pairs, not borderline ones.
-			 */
-			threshold: z.number().min(-1).max(1).default(0.6),
-			/**
-			 * Minimum raw co-change count required before NPMI is even considered.
-			 * Filters out small-sample-size pairs whose NPMI is statistically noisy.
-			 * The analyzer's discovery default is 3; Epic uses 5 for conservatism.
-			 */
-			min_co_changes: z.number().int().min(1).default(5),
-		})
-		.optional(),
-});
+export const EpicConfigSchema = z
+	.object({
+		cochange: z
+			.object({
+				/** Master gate for the co-change conflict signal. Default off; opt-in. */
+				enabled: z.boolean().default(false),
+				/**
+				 * NPMI floor for considering a file pair "historically co-changing".
+				 * Range matches co_change_analyzer's npmi range [-1, 1]. The analyzer's
+				 * discovery default is 0.5; the Epic default is set higher (0.6) so the
+				 * signal only escalates clearly-coupled pairs, not borderline ones.
+				 */
+				threshold: z.number().min(-1).max(1).default(0.6),
+				/**
+				 * Minimum raw co-change count required before NPMI is even considered.
+				 * Filters out small-sample-size pairs whose NPMI is statistically noisy.
+				 * The analyzer's discovery default is 3; Epic uses 5 for conservatism.
+				 */
+				min_co_changes: z.number().int().min(1).default(5),
+			})
+			.strict()
+			.optional(),
+	})
+	.strict();
 
 export type EpicConfig = z.infer<typeof EpicConfigSchema>;
 

@@ -93,4 +93,44 @@ describe('disabled passthrough — config default leaves the signal off', () => 
 		expect(withDefaults.data.cochange?.threshold).toBe(0.6);
 		expect(withDefaults.data.cochange?.min_co_changes).toBe(5);
 	});
+
+	test('EpicConfigSchema rejects unknown keys (strict mode) — typos surface, not silently default', async () => {
+		const { EpicConfigSchema } = await import('../../../../src/config/schema');
+		// Typo at the top level.
+		expect(
+			EpicConfigSchema.safeParse({ cochnage: { enabled: true } }).success,
+		).toBe(false);
+		// Typo inside the cochange block (the case that historically passes
+		// silently and uses the default — exactly what `.strict()` prevents).
+		expect(
+			EpicConfigSchema.safeParse({ cochange: { thresholds: 0.7 } }).success,
+		).toBe(false);
+	});
+
+	test('EpicConfigSchema enforces threshold bounds [-1, 1]', async () => {
+		const { EpicConfigSchema } = await import('../../../../src/config/schema');
+		expect(
+			EpicConfigSchema.safeParse({ cochange: { threshold: 1.5 } }).success,
+		).toBe(false);
+		expect(
+			EpicConfigSchema.safeParse({ cochange: { threshold: -1.5 } }).success,
+		).toBe(false);
+		expect(
+			EpicConfigSchema.safeParse({ cochange: { threshold: 0 } }).success,
+		).toBe(true);
+	});
+});
+
+describe('co-change analyzer _internals contract (catches upstream renames)', () => {
+	test('the analyzer still exports the primitives the Epic source composes', async () => {
+		// This is a contract test: if a future upstream change renames or
+		// removes `parseGitLog` / `buildCoChangeMatrix` on the analyzer's
+		// `_internals`, the Epic-mode source breaks at runtime but our
+		// stub-based unit tests would still pass. This test directly imports
+		// the real analyzer and asserts the surface we depend on.
+		const analyzer = await import('../../../../src/tools/co-change-analyzer');
+		expect(typeof analyzer._internals).toBe('object');
+		expect(typeof analyzer._internals.parseGitLog).toBe('function');
+		expect(typeof analyzer._internals.buildCoChangeMatrix).toBe('function');
+	});
 });
