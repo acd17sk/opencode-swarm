@@ -97,6 +97,11 @@ export function decideEpicActivation(
 	commitsObserved: number,
 	options: EpicActivationOptions,
 ): EpicActivationVerdict {
+	// Edge case worth flagging: empty `tasks` produces a vacuous-promote
+	// verdict (p=0, hot-module check has nothing to fail on, greenfield
+	// still gated by commitsObserved). The caller is responsible for not
+	// dispatching execution against an empty plan — the verdict itself is
+	// honest about what it measured, just unusual.
 	// --- Gate 3: greenfield. Evaluate first so we never trust a low p that
 	// came from an empty / sparse history. (Order does not affect the final
 	// decision because all three gates AND together; the order is just

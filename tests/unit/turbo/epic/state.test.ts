@@ -200,15 +200,16 @@ describe('epic state — reset + decision recording', () => {
 		expect(after?.lastDecision?.p).toBe(0.12);
 	});
 
-	test('recordEpicDecision creates a session entry if one did not exist', () => {
-		recordEpicDecision(dir, 'sess-new', {
-			decidedAt: '2025-01-01T00:00:00Z',
-			decision: 'demote',
-			p: 0.5,
-			blockingReasons: ['p exceeds threshold'],
-		});
-		const state = loadEpicSessionState(dir, 'sess-new');
-		expect(state).not.toBeNull();
-		expect(state?.lastDecision?.decision).toBe('demote');
+	test('recordEpicDecision throws when no session entry exists (no phantom state)', () => {
+		expect(() =>
+			recordEpicDecision(dir, 'sess-never-enabled', {
+				decidedAt: '2025-01-01T00:00:00Z',
+				decision: 'demote',
+				p: 0.5,
+				blockingReasons: ['p exceeds threshold'],
+			}),
+		).toThrow(/no session entry exists/i);
+		// And the file should not have gained a phantom entry.
+		expect(loadEpicSessionState(dir, 'sess-never-enabled')).toBeNull();
 	});
 });
