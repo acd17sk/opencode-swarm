@@ -122,13 +122,25 @@ export function epicPairConflict(
 	for (const entry of activePairs) {
 		const fa = entry.fileA;
 		const fb = entry.fileB;
-		const aMatchesFa = normA.some((p) => pathMatches(p, fa));
-		const bMatchesFb = normB.some((p) => pathMatches(p, fb));
-		const aMatchesFb = normA.some((p) => pathMatches(p, fb));
-		const bMatchesFa = normB.some((p) => pathMatches(p, fa));
-		// A pair (fa, fb) signals a conflict if one scope touches fa and the
-		// other touches fb — in either ordering.
-		if ((aMatchesFa && bMatchesFb) || (aMatchesFb && bMatchesFa)) {
+		const aTouchesFa = normA.some((p) => pathMatches(p, fa));
+		const aTouchesFb = normA.some((p) => pathMatches(p, fb));
+		const bTouchesFa = normB.some((p) => pathMatches(p, fa));
+		const bTouchesFb = normB.some((p) => pathMatches(p, fb));
+		// Cross-task coupling via the pair (fa, fb) requires that each scope
+		// exclusively owns one side of the pair (strict partition). If a single
+		// scope contains BOTH files of the pair, the pair is fully internal to
+		// that task — its co-change relationship is exercised inside one task,
+		// not across the two — so it adds no cross-task signal beyond whatever
+		// path-overlap may also fire. Without this exclusivity requirement,
+		// `reason` over-attributes to `'cochange'` / `'both'` on pairs whose
+		// coupling does not actually live between the two tasks.
+		const aExclusivelyFa = aTouchesFa && !aTouchesFb;
+		const aExclusivelyFb = aTouchesFb && !aTouchesFa;
+		const bExclusivelyFa = bTouchesFa && !bTouchesFb;
+		const bExclusivelyFb = bTouchesFb && !bTouchesFa;
+		const crossCouple =
+			(aExclusivelyFa && bExclusivelyFb) || (aExclusivelyFb && bExclusivelyFa);
+		if (crossCouple) {
 			cochangeMatches.push({
 				a: fa,
 				b: fb,
