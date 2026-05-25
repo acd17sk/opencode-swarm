@@ -10,6 +10,7 @@ import { handleClarifyCommand } from './clarify.js';
 import { handleCloseCommand } from './close.js';
 import { handleConfigCommand } from './config.js';
 import { handleCouncilCommand } from './council.js';
+import { handleCouplingCommand } from './coupling.js';
 import { handleCurateCommand } from './curate.js';
 import { handleDarkMatterCommand } from './dark-matter.js';
 import { handleDeepDiveCommand } from './deep-dive.js';
@@ -453,6 +454,15 @@ export const COMMAND_REGISTRY = {
 		description: 'Run knowledge curation and hive promotion review',
 		args: '',
 		category: 'utility',
+	},
+	coupling: {
+		handler: (ctx) => handleCouplingCommand(ctx.directory, ctx.args),
+		description:
+			'Measure plan coupling (p) and rank modules driving conflicts (Epic mode preview)',
+		details:
+			"Computes the coupling coefficient p = (conflicting task pairs) / (total task pairs) over the current plan, using Epic mode's combined path + co-change conflict signal. Surfaces per-module contention and a ranked decoupling roadmap. Read-only: runs independent of `turbo.epic.cochange.enabled` so it can be used as a what-if diagnostic before opting into the runtime signal.",
+		args: '--phase <n>, --threshold <-1..1>, --min-co-changes <n>, --format markdown|json, --persist',
+		category: 'diagnostics',
 	},
 	'dark-matter': {
 		handler: (ctx) => handleDarkMatterCommand(ctx.directory, ctx.args),
