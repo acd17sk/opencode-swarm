@@ -19,6 +19,7 @@
  *   --persist               Also write JSON to .swarm/epic/coupling-report.json.
  */
 
+import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { loadPlanJsonOnly } from '../plan/manager.js';
@@ -60,8 +61,14 @@ function parseArgs(args: string[]): CouplingCliArgs {
 					parsed.parseError = '--phase requires a numeric argument';
 					return parsed;
 				}
+				// Require a pure decimal integer — `parseInt('1.5', 10)` silently
+				// truncates to 1, which would accept "--phase 1.5" as phase 1.
+				if (!/^\d+$/.test(next)) {
+					parsed.parseError = `--phase must be a positive integer (got '${next}')`;
+					return parsed;
+				}
 				const v = Number.parseInt(next, 10);
-				if (Number.isNaN(v) || v < 1) {
+				if (v < 1) {
 					parsed.parseError = `--phase must be a positive integer (got '${next}')`;
 					return parsed;
 				}
@@ -88,8 +95,13 @@ function parseArgs(args: string[]): CouplingCliArgs {
 					parsed.parseError = '--min-co-changes requires a numeric argument';
 					return parsed;
 				}
+				// Same rationale as --phase: reject silent truncation of decimals.
+				if (!/^\d+$/.test(next)) {
+					parsed.parseError = `--min-co-changes must be a positive integer (got '${next}')`;
+					return parsed;
+				}
 				const v = Number.parseInt(next, 10);
-				if (Number.isNaN(v) || v < 1) {
+				if (v < 1) {
 					parsed.parseError = `--min-co-changes must be a positive integer (got '${next}')`;
 					return parsed;
 				}
@@ -122,14 +134,28 @@ function parseArgs(args: string[]): CouplingCliArgs {
  * project directory. Mirrors the pattern in `src/turbo/lean/state.ts`:
  * tmp file + rename. The project root is the `directory` argument; we never
  * touch `process.cwd()` (AGENTS.md invariant 4).
+ *
+ * The tmp suffix is a random hex string (not `Date.now()`) so concurrent
+ * callers cannot collide on the same path. If `rename` fails, the tmp file
+ * is unlinked best-effort to avoid orphan accumulation under `.swarm/epic/`.
  */
 function persistReportJson(directory: string, report: CouplingReport): string {
 	const epicDir = path.join(directory, '.swarm', 'epic');
 	fs.mkdirSync(epicDir, { recursive: true });
 	const filePath = path.join(epicDir, 'coupling-report.json');
-	const tmpPath = `${filePath}.tmp.${Date.now()}`;
+	const tmpPath = `${filePath}.tmp.${randomBytes(8).toString('hex')}`;
 	fs.writeFileSync(tmpPath, `${JSON.stringify(report, null, 2)}\n`, 'utf-8');
-	fs.renameSync(tmpPath, filePath);
+	try {
+		fs.renameSync(tmpPath, filePath);
+	} catch (err) {
+		// Clean up the tmp file so a failed rename does not leave stale data.
+		try {
+			fs.unlinkSync(tmpPath);
+		} catch {
+			// best-effort cleanup
+		}
+		throw err;
+	}
 	return filePath;
 }
 
@@ -187,19 +213,42 @@ export async function handleCouplingCommand(
 		minCoChanges: parsed.minCoChanges,
 	});
 
-	let persistTrailer = '';
+	let persistStatus:
+		| { requested: false }
+		| { requested: true; written: true; path: string }
+		| { requested: true; written: false; error: string } = {
+		requested: false,
+	};
 	if (parsed.persist) {
 		try {
 			const writtenAt = persistReportJson(directory, report);
-			persistTrailer = `\n\n_Wrote structured report to \`${path.relative(directory, writtenAt)}\`._`;
+			persistStatus = {
+				requested: true,
+				written: true,
+				path: path.relative(directory, writtenAt),
+			};
 		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			persistTrailer = `\n\n_Warning: failed to persist report (${msg})._`;
+			persistStatus = {
+				requested: true,
+				written: false,
+				error: err instanceof Error ? err.message : String(err),
+			};
 		}
 	}
 
 	if (parsed.format === 'json') {
-		return JSON.stringify(report, null, 2);
+		// Embed persist status inside the JSON envelope so programmatic
+		// consumers see persistence failures (previously this returned the
+		// report verbatim even when --persist failed, silently misleading
+		// the caller).
+		return JSON.stringify({ ...report, persist: persistStatus }, null, 2);
+	}
+
+	let persistTrailer = '';
+	if (persistStatus.requested && persistStatus.written) {
+		persistTrailer = `\n\n_Wrote structured report to \`${persistStatus.path}\`._`;
+	} else if (persistStatus.requested && !persistStatus.written) {
+		persistTrailer = `\n\n_Warning: failed to persist report (${persistStatus.error})._`;
 	}
 	return `${formatCouplingReportMarkdown(report)}${persistTrailer}`;
 }
