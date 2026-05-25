@@ -155,8 +155,14 @@ export function computeCouplingReport(
 	const roadmap: string[] = [];
 	for (const m of perModule.slice(0, roadmapTop)) {
 		const pct = (m.share * 100).toFixed(0);
+		// "appears in X% of conflicting pairs" is what `share` literally
+		// measures (count / conflictingPairCount). Avoids the misleading
+		// "drives X% of detected coupling" phrasing — when a cochange pair
+		// attributes both endpoints, each one's share is 100%, and a
+		// natural reading of "drives X%" makes the values look like they
+		// should sum to 100% when they don't.
 		roadmap.push(
-			`\`${m.module}\` drives ${pct}% of detected coupling (${m.conflicts} pair${m.conflicts === 1 ? '' : 's'}) — isolating it behind an interface is a high-leverage refactor.`,
+			`\`${m.module}\` appears in ${pct}% of conflicting pairs (${m.conflicts} pair${m.conflicts === 1 ? '' : 's'}) — isolating it behind an interface is a high-leverage refactor.`,
 		);
 	}
 
@@ -193,7 +199,10 @@ export function formatCouplingReportMarkdown(report: CouplingReport): string {
 		return lines.join('\n');
 	}
 
-	const pPct = (report.p * 100).toFixed(1);
+	// Use .toFixed(2) so very small / very large p values do not collapse
+	// to '0.0' or '100.0' in the percentage rendering. The exact p value is
+	// always available in `report.p` for programmatic consumers.
+	const pPct = (report.p * 100).toFixed(2);
 	lines.push(
 		`**p = ${report.p.toFixed(3)}** (${report.conflictingPairCount} conflicting pair${report.conflictingPairCount === 1 ? '' : 's'} out of ${report.totalPairs} total — ${pPct}% of task pairs conflict)`,
 	);
@@ -206,12 +215,16 @@ export function formatCouplingReportMarkdown(report: CouplingReport): string {
 	if (report.perModule.length > 0) {
 		lines.push('### Per-module contention');
 		lines.push('');
-		lines.push('| Module | Conflicts | Share |');
+		lines.push('| Module | Conflicts | Pair coverage |');
 		lines.push('|---|---:|---:|');
 		for (const m of report.perModule) {
 			const pct = (m.share * 100).toFixed(0);
 			lines.push(`| \`${m.module}\` | ${m.conflicts} | ${pct}% |`);
 		}
+		lines.push('');
+		lines.push(
+			'_Pair coverage = the fraction of conflicting pairs this module appears in. A single co-change pair attributes both endpoints, so coverage values can sum past 100%._',
+		);
 		lines.push('');
 	}
 
