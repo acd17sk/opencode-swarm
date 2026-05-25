@@ -970,7 +970,7 @@ Do NOT skip phase reviewer/critic when configured. Degraded and serialized tasks
 
 export const EPIC_MODE_BANNER = `## 🧭 EPIC MODE ACTIVE
 
-Epic Mode is the autonomous coupling-aware layer that decides per plan whether to use Lean Turbo (parallel) or fall back to serial execution.
+**Epic Mode supersedes any Lean Turbo guidance you may have seen.** Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on — Epic Mode is the autonomous coupling-aware layer that decides per plan whether Lean Turbo runs at all.
 
 Behavioral changes:
 - **When you need to execute a phase, call the \`epic_run_phase(directory, phase, sessionID)\` tool INSTEAD of \`lean_turbo_run_phase(...)\`.** The epic tool computes the plan-wide coupling coefficient \`p\` and gates on three checks (p-threshold, hot-module, greenfield), then either invokes Lean Turbo for parallel execution (when promoted) or returns a structured "demoted" verdict (when any gate fails).

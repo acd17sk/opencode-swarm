@@ -1191,13 +1191,18 @@ ${handoffContent}`;
 								if (hasActiveFullAuto(sessionIdBanner)) {
 									tryInject(FULL_AUTO_BANNER);
 								}
-								if (hasActiveLeanTurbo(sessionIdBanner)) {
+								// Suppress the Lean Turbo banner when Epic Mode is
+								// active — Epic Mode supersedes Lean Turbo's
+								// "use lean_turbo_run_phase" guidance, and showing
+								// both banners gives the architect contradictory
+								// instructions. The Epic banner below restates
+								// what's relevant about Lean Turbo at dispatch time.
+								if (
+									hasActiveLeanTurbo(sessionIdBanner) &&
+									!hasActiveEpicMode(sessionIdBanner)
+								) {
 									tryInject(LEAN_TURBO_BANNER);
 								}
-								// Epic Mode banner — instructs the architect to use
-								// `epic_run_phase` instead of `lean_turbo_run_phase`
-								// for the next phase. Injected last so it appears
-								// closest to the architect's other decision context.
 								if (hasActiveEpicMode(sessionIdBanner)) {
 									tryInject(EPIC_MODE_BANNER);
 								}
@@ -1771,7 +1776,12 @@ ${handoffContent}`;
 									metadata: { contentType: 'prose' as ContentType },
 								});
 							}
-							if (hasActiveLeanTurbo(sessionIdBanner_b)) {
+							// Suppress the Lean Turbo banner when Epic Mode is
+							// active (see same rationale at Path A above).
+							if (
+								hasActiveLeanTurbo(sessionIdBanner_b) &&
+								!hasActiveEpicMode(sessionIdBanner_b)
+							) {
 								candidates.push({
 									id: `candidate-${idCounter++}`,
 									kind: 'agent_context' as ContextCandidate['kind'],

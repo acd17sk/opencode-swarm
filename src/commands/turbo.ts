@@ -65,7 +65,10 @@ export async function handleTurboCommand(
 	const isTurboOn = session.turboMode;
 	const isLeanActive = session.leanTurboActive === true;
 
-	// Disable helper - pauses lean if needed and resets all turbo flags
+	// Disable helper - pauses lean if needed and resets all turbo flags.
+	// Also clears Epic Mode (since Epic dispatches into Lean Turbo when it
+	// promotes; leaving epic active after disabling lean would have the
+	// architect call epic_run_phase against a disabled lean engine).
 	const disableTurbo = (reason: string): void => {
 		if (isLeanActive) {
 			try {
@@ -76,6 +79,17 @@ export async function handleTurboCommand(
 				);
 			}
 		}
+		// Cross-clear Epic Mode whenever turbo is disabled — Epic Mode's
+		// contract requires Lean Turbo as its promote-dispatch target.
+		// Best-effort; durable-state write failure is logged, not thrown.
+		try {
+			disableEpicMode(directory, sessionID);
+		} catch (error) {
+			logger.error(
+				`[turbo] disableEpicMode (cross-clear) failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+		session.epicModeActive = false;
 		session.turboMode = false;
 		session.turboStrategy = undefined;
 		session.leanTurboActive = false;
@@ -179,8 +193,16 @@ export async function handleTurboCommand(
 	// gate parallelization without also activating lean's session banners.
 	if (arg0 === 'epic' && arg1 === 'on') {
 		// Enable lean turbo first (it sets turboMode + turboStrategy +
-		// leanTurboActive + persists the run state).
+		// leanTurboActive + persists the run state). On durable-write
+		// failure it returns an error string and leaves session flags
+		// untouched — detect that and ABORT before flipping epic on
+		// (otherwise the architect would see EPIC_MODE_BANNER and call
+		// epic_run_phase, which dispatches into a Lean Turbo that is
+		// not actually running).
 		const leanMsg = enableLeanTurbo(session, directory, sessionID);
+		if (!session.leanTurboActive) {
+			return `${leanMsg}\nEpic Mode NOT enabled: Lean Turbo failed to enable (Epic Mode requires Lean Turbo as its promote-dispatch target).`;
+		}
 		// Then enable epic mode in the durable state and mirror the
 		// in-memory flag so `hasActiveEpicMode` picks it up.
 		try {
@@ -195,34 +217,25 @@ export async function handleTurboCommand(
 		return `${leanMsg}\nEpic Mode enabled — the architect will use epic_run_phase for phase execution.`;
 	}
 	if (arg0 === 'epic' && arg1 === 'off') {
-		// Disable epic first (cheap, never throws under normal state), then
-		// disable lean turbo via the standard helper.
-		try {
-			disableEpicMode(directory, sessionID);
-		} catch (error) {
-			logger.error(
-				`[turbo] disableEpicMode failed: ${error instanceof Error ? error.message : String(error)}`,
-			);
-		}
-		session.epicModeActive = false;
+		// `disableTurbo` already cross-clears Epic Mode (durable +
+		// in-memory) as part of its standard reset, so a single call
+		// handles both axes.
 		disableTurbo('/swarm turbo epic off');
 		return 'Turbo Mode + Epic Mode disabled';
 	}
 	if (arg0 === 'epic' && arg1 === undefined) {
-		// Bare `/swarm turbo epic` → toggle.
-		if (isEpicModeActive(directory, sessionID)) {
-			try {
-				disableEpicMode(directory, sessionID);
-			} catch (error) {
-				logger.error(
-					`[turbo] disableEpicMode failed: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			}
-			session.epicModeActive = false;
+		// Bare `/swarm turbo epic` → toggle. Use the in-memory flag as the
+		// source of truth (it's a mirror of `.swarm/epic-state.json`; the
+		// disk file is the durable backup for restart scenarios, but in
+		// this process the session flag is what every other check reads).
+		if (session.epicModeActive === true) {
 			disableTurbo('/swarm turbo epic (toggle off)');
 			return 'Turbo Mode + Epic Mode disabled';
 		}
 		const leanMsg = enableLeanTurbo(session, directory, sessionID);
+		if (!session.leanTurboActive) {
+			return `${leanMsg}\nEpic Mode NOT enabled: Lean Turbo failed to enable.`;
+		}
 		try {
 			enableEpicMode(directory, sessionID);
 			session.epicModeActive = true;

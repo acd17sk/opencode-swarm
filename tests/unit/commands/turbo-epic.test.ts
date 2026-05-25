@@ -142,6 +142,64 @@ describe('/swarm turbo epic (toggle)', () => {
 	});
 });
 
+describe('/swarm turbo epic — cross-clear: disabling lean disables epic too', () => {
+	test('/swarm turbo off after epic on clears BOTH flags', async () => {
+		await handleTurboCommand(tmpDir, ['epic', 'on'], SESSION_ID);
+		expect(isEpicModeActive(tmpDir, SESSION_ID)).toBe(true);
+
+		const out = await handleTurboCommand(tmpDir, ['off'], SESSION_ID);
+		expect(out).toContain('Turbo Mode disabled');
+
+		const session = swarmState.agentSessions.get(SESSION_ID);
+		expect(session?.epicModeActive).toBe(false);
+		expect(session?.turboMode).toBe(false);
+		expect(session?.leanTurboActive).toBe(false);
+		// Durable epic state cross-cleared too.
+		expect(isEpicModeActive(tmpDir, SESSION_ID)).toBe(false);
+	});
+
+	test('/swarm turbo lean off after epic on clears BOTH flags', async () => {
+		await handleTurboCommand(tmpDir, ['epic', 'on'], SESSION_ID);
+		expect(isEpicModeActive(tmpDir, SESSION_ID)).toBe(true);
+
+		await handleTurboCommand(tmpDir, ['lean', 'off'], SESSION_ID);
+
+		const session = swarmState.agentSessions.get(SESSION_ID);
+		expect(session?.epicModeActive).toBe(false);
+		expect(isEpicModeActive(tmpDir, SESSION_ID)).toBe(false);
+	});
+
+	test('bare /swarm turbo (toggle off) after epic on clears BOTH flags', async () => {
+		await handleTurboCommand(tmpDir, ['epic', 'on'], SESSION_ID);
+		await handleTurboCommand(tmpDir, [], SESSION_ID); // toggle
+
+		const session = swarmState.agentSessions.get(SESSION_ID);
+		expect(session?.epicModeActive).toBe(false);
+		expect(isEpicModeActive(tmpDir, SESSION_ID)).toBe(false);
+	});
+});
+
+describe('/swarm turbo epic — lean failure aborts epic activation', () => {
+	test('if Lean Turbo durable write fails, epic is NOT enabled', async () => {
+		// Sabotage the durable write: pre-create .swarm/turbo-state.json as
+		// a non-empty DIRECTORY so saveLeanTurboRunState's tmp+rename fails
+		// with ENOTEMPTY / EISDIR.
+		const swarmDir = path.join(tmpDir, '.swarm');
+		fs.mkdirSync(swarmDir, { recursive: true });
+		const blocker = path.join(swarmDir, 'turbo-state.json');
+		fs.mkdirSync(blocker);
+		fs.writeFileSync(path.join(blocker, 'x'), 'block', 'utf-8');
+
+		const out = await handleTurboCommand(tmpDir, ['epic', 'on'], SESSION_ID);
+		expect(out).toMatch(/(could NOT be enabled|NOT enabled)/i);
+
+		const session = swarmState.agentSessions.get(SESSION_ID);
+		expect(session?.epicModeActive).toBe(false);
+		expect(session?.leanTurboActive).toBe(false);
+		expect(isEpicModeActive(tmpDir, SESSION_ID)).toBe(false);
+	});
+});
+
 describe('/swarm turbo epic — composition with existing /swarm turbo', () => {
 	test('does not break /swarm turbo lean on (existing path)', async () => {
 		const out = await handleTurboCommand(tmpDir, ['lean', 'on'], SESSION_ID);
