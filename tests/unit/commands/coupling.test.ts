@@ -128,6 +128,19 @@ describe('handleCouplingCommand — argument parsing', () => {
 		expect(out).toContain('--min-co-changes must be a positive integer');
 	});
 
+	test('rejects --phase with decimal (silent-truncation guard)', async () => {
+		const out = await handleCouplingCommand(tmpDir, ['--phase', '1.5']);
+		expect(out).toContain('--phase must be a positive integer');
+	});
+
+	test('rejects --min-co-changes with decimal', async () => {
+		const out = await handleCouplingCommand(tmpDir, [
+			'--min-co-changes',
+			'3.9',
+		]);
+		expect(out).toContain('--min-co-changes must be a positive integer');
+	});
+
 	test('accepts all flags together', async () => {
 		_internals.loadPlanJsonOnly = (async () => makePlan()) as never;
 		_internals.getCoChangePairs = (async () => []) as never;
@@ -239,6 +252,75 @@ describe('handleCouplingCommand — --persist', () => {
 		expect(fs.existsSync(path.join(tmpDir, '.swarm', 'epic'))).toBe(false);
 		await handleCouplingCommand(tmpDir, ['--persist']);
 		expect(fs.existsSync(path.join(tmpDir, '.swarm', 'epic'))).toBe(true);
+	});
+
+	test('--persist does NOT leave .tmp.* leftover files in .swarm/epic/', async () => {
+		_internals.loadPlanJsonOnly = (async () => makePlan()) as never;
+		_internals.getCoChangePairs = (async () => []) as never;
+
+		await handleCouplingCommand(tmpDir, ['--persist']);
+		const epicDir = path.join(tmpDir, '.swarm', 'epic');
+		const leftovers = fs
+			.readdirSync(epicDir)
+			.filter((f) => f.startsWith('coupling-report.json.tmp.'));
+		expect(leftovers).toEqual([]);
+	});
+
+	test('--format json --persist embeds a persist status field in the JSON', async () => {
+		_internals.loadPlanJsonOnly = (async () => makePlan()) as never;
+		_internals.getCoChangePairs = (async () => []) as never;
+
+		const out = await handleCouplingCommand(tmpDir, [
+			'--persist',
+			'--format',
+			'json',
+		]);
+		const envelope = JSON.parse(out);
+		expect(envelope).toHaveProperty('persist');
+		expect(envelope.persist.requested).toBe(true);
+		expect(envelope.persist.written).toBe(true);
+		expect(envelope.persist.path).toBe('.swarm/epic/coupling-report.json');
+		// Core report fields are still present.
+		expect(envelope).toHaveProperty('p');
+		expect(envelope).toHaveProperty('perModule');
+	});
+
+	test('--format json without --persist sets persist.requested to false', async () => {
+		_internals.loadPlanJsonOnly = (async () => makePlan()) as never;
+		_internals.getCoChangePairs = (async () => []) as never;
+
+		const out = await handleCouplingCommand(tmpDir, ['--format', 'json']);
+		const envelope = JSON.parse(out);
+		expect(envelope.persist).toEqual({ requested: false });
+	});
+
+	test('--format json --persist surfaces a failure (not silent) when rename throws', async () => {
+		_internals.loadPlanJsonOnly = (async () => makePlan()) as never;
+		_internals.getCoChangePairs = (async () => []) as never;
+
+		// Sabotage: create the target as a NON-EMPTY DIRECTORY so renameSync
+		// fails with ENOTEMPTY (cross-platform: same failure path on macOS,
+		// Linux, Windows).
+		const epicDir = path.join(tmpDir, '.swarm', 'epic');
+		const targetAsDir = path.join(epicDir, 'coupling-report.json');
+		fs.mkdirSync(epicDir, { recursive: true });
+		fs.mkdirSync(targetAsDir);
+		fs.writeFileSync(path.join(targetAsDir, 'blocker'), 'x', 'utf-8');
+
+		const out = await handleCouplingCommand(tmpDir, [
+			'--persist',
+			'--format',
+			'json',
+		]);
+		const envelope = JSON.parse(out);
+		expect(envelope.persist.requested).toBe(true);
+		expect(envelope.persist.written).toBe(false);
+		expect(envelope.persist).toHaveProperty('error');
+		// And no orphan tmp file should remain.
+		const leftovers = fs
+			.readdirSync(epicDir)
+			.filter((f) => f.startsWith('coupling-report.json.tmp.'));
+		expect(leftovers).toEqual([]);
 	});
 });
 
