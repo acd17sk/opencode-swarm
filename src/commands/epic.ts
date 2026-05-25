@@ -73,42 +73,56 @@ export async function handleEpicCommand(
 		case 'decide':
 			return renderDecide(directory);
 		case 'on':
-			return enableAndAck(directory, sessionID);
+			return enableAndAck(directory, sessionID, session);
 		case 'off':
-			return disableAndAck(directory, sessionID);
+			return disableAndAck(directory, sessionID, session);
 		case undefined: {
 			// No argument → toggle.
 			if (_internals.isEpicModeActive(directory, sessionID)) {
-				return disableAndAck(directory, sessionID);
+				return disableAndAck(directory, sessionID, session);
 			}
-			return enableAndAck(directory, sessionID);
+			return enableAndAck(directory, sessionID, session);
 		}
 		default:
 			return `Unknown subcommand '${arg0}'.\n\nUsage:\n  /swarm epic on | off | status | decide\n  /swarm epic         (toggle)`;
 	}
 }
 
-function enableAndAck(directory: string, sessionID: string): string {
+function enableAndAck(
+	directory: string,
+	sessionID: string,
+	session: NonNullable<ReturnType<typeof _internals.getAgentSession>>,
+): string {
 	try {
 		_internals.enableEpicMode(directory, sessionID);
 	} catch (err) {
 		return `Error enabling Epic Mode: ${err instanceof Error ? err.message : String(err)}`;
 	}
+	// Mirror the in-memory flag so `hasActiveEpicMode(sessionID)` picks up
+	// the new state. This is what makes the system-enhancer auto-inject the
+	// EPIC_MODE_BANNER on the next architect turn — without it, the durable
+	// state would say "active" but the architect prompt would not know.
+	session.epicModeActive = true;
 	return [
 		'Epic Mode enabled for this session.',
 		'',
-		'Next: the architect should call `epic_run_phase(phase)` instead of `lean_turbo_run_phase(phase)` when running phases. Each call computes the plan-wide coupling coefficient `p` and chooses promote/demote per the configured thresholds.',
+		'The architect will now use `epic_run_phase(phase)` instead of `lean_turbo_run_phase(phase)` for phase execution. Each call computes the plan-wide coupling coefficient `p` and chooses promote/demote per the configured thresholds.',
 		'',
 		'Run `/swarm epic decide` to see the current verdict without executing.',
 	].join('\n');
 }
 
-function disableAndAck(directory: string, sessionID: string): string {
+function disableAndAck(
+	directory: string,
+	sessionID: string,
+	session: NonNullable<ReturnType<typeof _internals.getAgentSession>>,
+): string {
 	try {
 		_internals.disableEpicMode(directory, sessionID);
 	} catch (err) {
 		return `Error disabling Epic Mode: ${err instanceof Error ? err.message : String(err)}`;
 	}
+	session.epicModeActive = false;
 	return 'Epic Mode disabled for this session.';
 }
 

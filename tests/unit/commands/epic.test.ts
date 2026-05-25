@@ -20,6 +20,7 @@ let sessionStateStored: ReturnType<typeof realInternals.loadEpicSessionState> =
 let decideCalls = 0;
 let enableCalls = 0;
 let disableCalls = 0;
+let sessionFlag: { epicModeActive?: boolean; id: string; turboMode: boolean };
 
 beforeEach(() => {
 	active = false;
@@ -27,9 +28,10 @@ beforeEach(() => {
 	decideCalls = 0;
 	enableCalls = 0;
 	disableCalls = 0;
+	sessionFlag = { id: 'sess-1', turboMode: false, epicModeActive: false };
 
 	_internals.getAgentSession = ((id: string) =>
-		id === 'sess-1' ? ({ id, turboMode: false } as never) : null) as never;
+		id === 'sess-1' ? (sessionFlag as never) : null) as never;
 	_internals.isEpicModeActive = (() => active) as never;
 	_internals.isStateUnreadable = (() => false) as never;
 	_internals.loadEpicSessionState = (() => sessionStateStored) as never;
@@ -118,14 +120,18 @@ describe('handleEpicCommand — on / off / toggle', () => {
 		expect(out).toContain('Epic Mode enabled');
 		expect(enableCalls).toBe(1);
 		expect(active).toBe(true);
+		// In-memory session flag is also mirrored so hasActiveEpicMode picks it up.
+		expect(sessionFlag.epicModeActive).toBe(true);
 	});
 
 	test('`off` disables the mode and acks', async () => {
 		active = true;
+		sessionFlag.epicModeActive = true;
 		const out = await handleEpicCommand('/fake', ['off'], 'sess-1');
 		expect(out).toContain('Epic Mode disabled');
 		expect(disableCalls).toBe(1);
 		expect(active).toBe(false);
+		expect(sessionFlag.epicModeActive).toBe(false);
 	});
 
 	test('bare `/swarm epic` toggles', async () => {
