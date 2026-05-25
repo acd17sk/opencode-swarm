@@ -812,6 +812,25 @@ export declare const LeanTurboConfigSchema: z.ZodObject<{
     worktree_isolation: z.ZodDefault<z.ZodBoolean>;
 }, z.core.$strip>;
 export type LeanTurboConfig = z.infer<typeof LeanTurboConfigSchema>;
+/**
+ * Epic mode — co-change-aware conflict detection settings.
+ *
+ * Epic mode is an additive layer that composes Lean Turbo (it never modifies it).
+ * Capability A surfaces git co-change history as an extra conflict signal so
+ * pairs of files that historically change together can be treated as conflicting
+ * even when path-based rules would not catch the coupling.
+ *
+ * With `cochange.enabled: false` (the default), no Epic-mode code runs in any
+ * existing flow — behavior is identical to upstream Lean Turbo.
+ */
+export declare const EpicConfigSchema: z.ZodObject<{
+    cochange: z.ZodOptional<z.ZodObject<{
+        enabled: z.ZodDefault<z.ZodBoolean>;
+        threshold: z.ZodDefault<z.ZodNumber>;
+        min_co_changes: z.ZodDefault<z.ZodNumber>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
+export type EpicConfig = z.infer<typeof EpicConfigSchema>;
 export declare const StandardTurboConfigSchema: z.ZodObject<{
     strategy: z.ZodLiteral<"standard">;
     lean: z.ZodOptional<z.ZodObject<{
@@ -827,6 +846,13 @@ export declare const StandardTurboConfigSchema: z.ZodObject<{
         integrated_diff_required: z.ZodDefault<z.ZodBoolean>;
         allow_docs_only_without_reviewer: z.ZodDefault<z.ZodBoolean>;
         worktree_isolation: z.ZodDefault<z.ZodBoolean>;
+    }, z.core.$strip>>;
+    epic: z.ZodOptional<z.ZodObject<{
+        cochange: z.ZodOptional<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            threshold: z.ZodDefault<z.ZodNumber>;
+            min_co_changes: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strip>>;
     }, z.core.$strip>>;
 }, z.core.$strip>;
 export declare const LeanTurboStrategyConfigSchema: z.ZodObject<{
@@ -845,6 +871,13 @@ export declare const LeanTurboStrategyConfigSchema: z.ZodObject<{
         allow_docs_only_without_reviewer: z.ZodDefault<z.ZodBoolean>;
         worktree_isolation: z.ZodDefault<z.ZodBoolean>;
     }, z.core.$strip>;
+    epic: z.ZodOptional<z.ZodObject<{
+        cochange: z.ZodOptional<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            threshold: z.ZodDefault<z.ZodNumber>;
+            min_co_changes: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strip>>;
+    }, z.core.$strip>>;
 }, z.core.$strip>;
 export declare const TurboConfigSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     strategy: z.ZodLiteral<"standard">;
@@ -862,6 +895,13 @@ export declare const TurboConfigSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         allow_docs_only_without_reviewer: z.ZodDefault<z.ZodBoolean>;
         worktree_isolation: z.ZodDefault<z.ZodBoolean>;
     }, z.core.$strip>>;
+    epic: z.ZodOptional<z.ZodObject<{
+        cochange: z.ZodOptional<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            threshold: z.ZodDefault<z.ZodNumber>;
+            min_co_changes: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strip>>;
+    }, z.core.$strip>>;
 }, z.core.$strip>, z.ZodObject<{
     strategy: z.ZodLiteral<"lean">;
     lean: z.ZodObject<{
@@ -878,6 +918,13 @@ export declare const TurboConfigSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         allow_docs_only_without_reviewer: z.ZodDefault<z.ZodBoolean>;
         worktree_isolation: z.ZodDefault<z.ZodBoolean>;
     }, z.core.$strip>;
+    epic: z.ZodOptional<z.ZodObject<{
+        cochange: z.ZodOptional<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            threshold: z.ZodDefault<z.ZodNumber>;
+            min_co_changes: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strip>>;
+    }, z.core.$strip>>;
 }, z.core.$strip>], "strategy">;
 export type TurboConfig = z.infer<typeof TurboConfigSchema>;
 export declare const PluginConfigSchema: z.ZodObject<{
@@ -1420,6 +1467,13 @@ export declare const PluginConfigSchema: z.ZodObject<{
             allow_docs_only_without_reviewer: z.ZodDefault<z.ZodBoolean>;
             worktree_isolation: z.ZodDefault<z.ZodBoolean>;
         }, z.core.$strip>>;
+        epic: z.ZodOptional<z.ZodObject<{
+            cochange: z.ZodOptional<z.ZodObject<{
+                enabled: z.ZodDefault<z.ZodBoolean>;
+                threshold: z.ZodDefault<z.ZodNumber>;
+                min_co_changes: z.ZodDefault<z.ZodNumber>;
+            }, z.core.$strip>>;
+        }, z.core.$strip>>;
     }, z.core.$strip>, z.ZodObject<{
         strategy: z.ZodLiteral<"lean">;
         lean: z.ZodObject<{
@@ -1436,6 +1490,13 @@ export declare const PluginConfigSchema: z.ZodObject<{
             allow_docs_only_without_reviewer: z.ZodDefault<z.ZodBoolean>;
             worktree_isolation: z.ZodDefault<z.ZodBoolean>;
         }, z.core.$strip>;
+        epic: z.ZodOptional<z.ZodObject<{
+            cochange: z.ZodOptional<z.ZodObject<{
+                enabled: z.ZodDefault<z.ZodBoolean>;
+                threshold: z.ZodDefault<z.ZodNumber>;
+                min_co_changes: z.ZodDefault<z.ZodNumber>;
+            }, z.core.$strip>>;
+        }, z.core.$strip>>;
     }, z.core.$strip>], "strategy">>;
     turbo_mode: z.ZodOptional<z.ZodDefault<z.ZodBoolean>>;
     quiet: z.ZodOptional<z.ZodDefault<z.ZodBoolean>>;
