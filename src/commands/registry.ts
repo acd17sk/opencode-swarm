@@ -17,6 +17,7 @@ import { handleDarkMatterCommand } from './dark-matter.js';
 import { handleDeepDiveCommand } from './deep-dive.js';
 import { handleDiagnoseCommand } from './diagnose.js';
 import { handleDoctorCommand, handleDoctorToolsCommand } from './doctor.js';
+import { handleEpicCommand } from './epic.js';
 import {
 	handleEvidenceCommand,
 	handleEvidenceSummaryCommand,
@@ -471,6 +472,15 @@ export const COMMAND_REGISTRY = {
 		details:
 			"Computes the coupling coefficient p = (conflicting task pairs) / (total task pairs) over the current plan, using Epic mode's combined path + co-change conflict signal. Surfaces per-module contention and a ranked decoupling roadmap. Read-only: runs independent of `turbo.epic.cochange.enabled` so it can be used as a what-if diagnostic before opting into the runtime signal.",
 		args: '--phase <n>, --threshold <-1..1>, --min-co-changes <n>, --format markdown|json, --persist',
+		category: 'diagnostics',
+	},
+	epic: {
+		handler: (ctx) => handleEpicCommand(ctx.directory, ctx.args, ctx.sessionID),
+		description:
+			'Toggle Epic Mode (autonomous coupling-aware parallel activation) and inspect its decisions',
+		details:
+			'Epic Mode is an additive overlay that composes Lean Turbo. When on, the architect should call epic_run_phase(phase) instead of lean_turbo_run_phase(phase); epic_run_phase computes the plan-wide coupling coefficient p and gates parallel promotion on p + a hot-module check + a greenfield rule. Subcommands: on, off, status, decide (read-only what-if). Bare /swarm epic toggles. Decision rationale persists to .swarm/evidence/epic-promotions.jsonl after every epic_run_phase invocation.',
+		args: 'on | off | status | decide',
 		category: 'diagnostics',
 	},
 	'dark-matter': {
