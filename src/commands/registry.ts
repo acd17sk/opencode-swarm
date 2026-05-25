@@ -685,13 +685,14 @@ export const COMMAND_REGISTRY = {
 		handler: (ctx) =>
 			handleTurboCommand(ctx.directory, ctx.args, ctx.sessionID),
 		description:
-			'Toggle Turbo Mode strategy for the active session [on|off|lean|standard|status]',
-		args: 'on, off, lean, standard, status',
+			'Toggle Turbo Mode strategy for the active session [on|off|lean|standard|epic|status]',
+		args: 'on, off, lean, standard, epic, status',
 		details:
-			'Toggles Turbo Mode for the current session. Supports two strategies:\n' +
+			'Toggles Turbo Mode for the current session. Supports three strategies:\n' +
 			'\n' +
 			'**Standard turbo** — skips non-critical QA gates for faster iteration.\n' +
 			'**Lean turbo** — parallel lane execution with per-lane reviewer gates and file-lock conflict detection.\n' +
+			'**Epic** — additive overlay above Lean Turbo. Auto-decides per-plan parallel-vs-serial via the coupling coefficient `p` and three gates (p-threshold, hot-module, greenfield). When `/swarm turbo epic on` is selected, Lean Turbo is also enabled — Epic dispatches Lean Turbo when it promotes.\n' +
 			'\n' +
 			'Subcommands:\n' +
 			'  turbo on           — enable turbo (uses lean when config turbo.strategy is "lean", otherwise standard)\n' +
@@ -701,9 +702,12 @@ export const COMMAND_REGISTRY = {
 			'  turbo lean         — toggle Lean Turbo on/off\n' +
 			'  turbo standard on  — force standard turbo (disables lean even if config says lean)\n' +
 			'  turbo standard off — disable standard turbo (falls back to lean if config strategy is lean)\n' +
+			'  turbo epic on      — enable Lean Turbo + Epic Mode together (autonomous decision)\n' +
+			'  turbo epic off     — disable both Lean Turbo and Epic Mode\n' +
+			'  turbo epic         — toggle Epic Mode (+ Lean Turbo) on/off\n' +
 			'  turbo status       — show detailed status including active strategy and lanes\n' +
 			'\n' +
-			'Session-scoped — resets on new session.',
+			'Session-scoped — resets on new session. `/swarm epic` remains as the epic-only toggle that does not also flip Lean Turbo session state.',
 		category: 'utility',
 	},
 	'full-auto': {

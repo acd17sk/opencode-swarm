@@ -1,6 +1,11 @@
 import { loadPluginConfigWithMeta } from '../config';
 import { getAgentSession } from '../state';
 import {
+	disableEpicMode,
+	enableEpicMode,
+	isEpicModeActive,
+} from '../turbo/epic/state';
+import {
 	emptyRunState,
 	isStateUnreadable,
 	loadLeanTurboRunState,
@@ -164,6 +169,70 @@ export async function handleTurboCommand(
 			// Lean is not active → enable lean
 			return enableLeanTurbo(session, directory, sessionID);
 		}
+	}
+
+	// --- turbo epic on/off (single-command unified toggle for Epic Mode +
+	// Lean Turbo). Epic Mode auto-decides per-plan parallel-vs-serial; when
+	// it promotes, it dispatches into Lean Turbo. The two are typically
+	// used together, so `/swarm turbo epic on` flips both as a convenience.
+	// `/swarm epic` remains as the epic-only toggle for users who want to
+	// gate parallelization without also activating lean's session banners.
+	if (arg0 === 'epic' && arg1 === 'on') {
+		// Enable lean turbo first (it sets turboMode + turboStrategy +
+		// leanTurboActive + persists the run state).
+		const leanMsg = enableLeanTurbo(session, directory, sessionID);
+		// Then enable epic mode in the durable state and mirror the
+		// in-memory flag so `hasActiveEpicMode` picks it up.
+		try {
+			enableEpicMode(directory, sessionID);
+			session.epicModeActive = true;
+		} catch (error) {
+			logger.error(
+				`[turbo] enableEpicMode failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			return `${leanMsg}\nEpic Mode could not be enabled: ${error instanceof Error ? error.message : String(error)}`;
+		}
+		return `${leanMsg}\nEpic Mode enabled — the architect will use epic_run_phase for phase execution.`;
+	}
+	if (arg0 === 'epic' && arg1 === 'off') {
+		// Disable epic first (cheap, never throws under normal state), then
+		// disable lean turbo via the standard helper.
+		try {
+			disableEpicMode(directory, sessionID);
+		} catch (error) {
+			logger.error(
+				`[turbo] disableEpicMode failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+		session.epicModeActive = false;
+		disableTurbo('/swarm turbo epic off');
+		return 'Turbo Mode + Epic Mode disabled';
+	}
+	if (arg0 === 'epic' && arg1 === undefined) {
+		// Bare `/swarm turbo epic` → toggle.
+		if (isEpicModeActive(directory, sessionID)) {
+			try {
+				disableEpicMode(directory, sessionID);
+			} catch (error) {
+				logger.error(
+					`[turbo] disableEpicMode failed: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+			session.epicModeActive = false;
+			disableTurbo('/swarm turbo epic (toggle off)');
+			return 'Turbo Mode + Epic Mode disabled';
+		}
+		const leanMsg = enableLeanTurbo(session, directory, sessionID);
+		try {
+			enableEpicMode(directory, sessionID);
+			session.epicModeActive = true;
+		} catch (error) {
+			logger.error(
+				`[turbo] enableEpicMode failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			return `${leanMsg}\nEpic Mode could not be enabled: ${error instanceof Error ? error.message : String(error)}`;
+		}
+		return `${leanMsg}\nEpic Mode enabled — the architect will use epic_run_phase for phase execution.`;
 	}
 
 	// Default fallback: unrecognized argument → toggle (restores legacy behavior)
