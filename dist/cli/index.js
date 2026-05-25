@@ -52,7 +52,7 @@ var package_default;
 var init_package = __esm(() => {
   package_default = {
     name: "opencode-swarm",
-    version: "7.33.1",
+    version: "7.33.2",
     description: "Architect-centric agentic swarm plugin for OpenCode - hub-and-spoke orchestration with SME consultation, code generation, and QA review",
     main: "dist/index.js",
     types: "dist/index.d.ts",
@@ -17816,8 +17816,8 @@ var init_schema = __esm(() => {
       enabled: exports_external.boolean().default(false),
       threshold: exports_external.number().min(-1).max(1).default(0.6),
       min_co_changes: exports_external.number().int().min(1).default(5)
-    }).optional()
-  });
+    }).strict().optional()
+  }).strict();
   StandardTurboConfigSchema = exports_external.object({
     strategy: exports_external.literal("standard"),
     lean: LeanTurboConfigSchema.optional(),
