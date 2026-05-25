@@ -490,6 +490,36 @@ Lean Turbo is a lane-planning execution strategy that partitions phase tasks int
 
 See [Modes Guide](modes.md#lean-turbo-lane-planning-engine) for the full Lean Turbo lane planning algorithm and conflict resolution rules.
 
+### `turbo.epic` — Epic Mode settings (preview)
+
+Epic Mode is an upcoming optional execution mode that augments Lean Turbo with autonomous, coupling-aware lane planning. As of this release only Capability A — a co-change-aware pair-conflict module — is in the codebase. The mode itself is not yet registered; with these keys at their defaults, no Epic-mode code runs and behavior is identical to Lean Turbo alone. See [Epic Mode (preview)](modes.md#epic-mode-preview) for the design.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `cochange.enabled` | boolean | `false` | Master gate for the co-change conflict signal. With this off, the module is dormant and no Epic-mode code runs in any flow. |
+| `cochange.threshold` | number | `0.6` | NPMI floor (range `[-1, 1]`) for a file pair to be treated as historically co-changing. Stricter than `co_change_analyzer`'s discovery default (`0.5`). |
+| `cochange.min_co_changes` | number | `5` | Minimum raw co-change count required before NPMI is considered, to suppress small-sample noise. Stricter than the analyzer's discovery default (`3`). |
+
+`turbo.epic` is independent of `turbo.strategy` — the keys are accepted under both `"standard"` and `"lean"` strategies. The block is purely additive; omitting it leaves Lean Turbo, Turbo, and Full-Auto behavior unchanged.
+
+**Example** — Enable the co-change signal with conservative defaults:
+
+```json
+{
+  "turbo": {
+    "strategy": "lean",
+    "lean": { "max_parallel_coders": 4 },
+    "epic": {
+      "cochange": {
+        "enabled": true,
+        "threshold": 0.6,
+        "min_co_changes": 5
+      }
+    }
+  }
+}
+```
+
 ## QA gates reference
 
 The QA gate profile (per-plan, persisted in the project DB) controls which quality gates fire during a plan's execution. Configure interactively via the gate-selection dialogue surfaced in MODE: SPECIFY step 5b, MODE: BRAINSTORM Phase 6, or the MODE: PLAN inline path. Programmatic configuration via `set_qa_gates` (architect-only) or `/swarm qa-gates enable <gate>...`.
