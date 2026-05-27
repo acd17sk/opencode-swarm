@@ -1013,12 +1013,26 @@ export const EPIC_MODE_BANNER = `## 🧭 EPIC MODE ACTIVE
 
 **Epic Mode supersedes any Lean Turbo guidance you may have seen.** Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on — Epic Mode is the autonomous coupling-aware layer that decides per plan whether Lean Turbo runs at all.
 
-Behavioral changes:
-- **When you need to execute a phase, call the \`epic_run_phase(directory, phase, sessionID)\` tool INSTEAD of \`lean_turbo_run_phase(...)\`.** The epic tool computes the plan-wide coupling coefficient \`p\` and gates on three checks (p-threshold, hot-module, greenfield), then either invokes Lean Turbo for parallel execution (when promoted) or returns a structured "demoted" verdict (when any gate fails).
-- **On a "demoted" verdict, fall back to the standard per-task serial flow** for that phase (delegate to coder, run Stage B per task, etc.). Do not attempt to invoke \`lean_turbo_run_phase\` after a demote — Epic Mode has already decided that this plan is too coupled to parallelize safely.
-- **On a "promoted" verdict, the tool already ran Lean Turbo** for that phase; the result includes \`lanes\`, \`degradedTasks\`, \`serializedTasks\` just like \`lean_turbo_run_phase\` would have produced. Phase reviewer + critic are still required at \`phase_complete\` per Lean Turbo's existing rules.
-- Each \`epic_run_phase\` invocation appends one record to \`.swarm/evidence/epic-promotions.jsonl\` with the verdict and rationale. \`/swarm epic status\` shows the most recent decision; \`/swarm epic decide\` previews the verdict without dispatching.
-- **After every \`update_task_status(task_id, status="completed")\` call, also call \`epic_record_divergence(directory, taskId, sessionID)\`.** This feeds the calibration loop (Capability D) — it compares the task's declared scope against the files the coder actually wrote, and the next \`epic_run_phase\` uses the history to auto-tighten the activation threshold and grow the hot-module list. The call is best-effort and never blocks; missing it just costs one observation.
+Mandatory behavioral changes:
+
+**1. Call \`epic_run_phase\` BEFORE any phase work — not just full-phase batch execution.**
+Before delegating the FIRST coder task of any phase (including mid-phase remaining tasks after a session resume), call \`epic_run_phase(directory, phase=N, sessionID)\` once for that phase. The tool computes the plan-wide coupling coefficient \`p\` and gates on three checks (p-threshold, hot-module, greenfield), then either invokes Lean Turbo for parallel execution (promote) or returns a structured "demoted" verdict (any gate failed). Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on — Epic decides whether Lean Turbo runs at all.
+
+**2. SURFACE the verdict to the user BEFORE proceeding.**
+After every \`epic_run_phase\` call, IMMEDIATELY show the user a one-line summary:
+> Epic Mode: <DECISION> (p=<value>) — <one-sentence rationale or top blocking reason>
+
+Then continue per the verdict. The verdict is the user's only visibility into what Epic is doing — silence here makes the mode invisible. If the user is going to spend time per task you must tell them why up front.
+
+**3. On a "demoted" verdict, fall back to the standard per-task serial flow** for that phase (delegate to coder, run Stage B per task, etc.). Do not attempt to invoke \`lean_turbo_run_phase\` after a demote — Epic has already decided this plan is too coupled to parallelize safely.
+
+**4. On a "promoted" verdict, the tool already ran Lean Turbo** for that phase; the result includes \`lanes\`, \`degradedTasks\`, \`serializedTasks\` just like \`lean_turbo_run_phase\` would have produced. Phase reviewer + critic are still required at \`phase_complete\` per Lean Turbo's existing rules.
+
+**5. After every \`update_task_status(task_id, status="completed")\` call, also call \`epic_record_divergence(directory, taskId, sessionID)\`.** This feeds the calibration loop (Capability D) — it compares the task's declared scope against the files the coder actually wrote, and the next \`epic_run_phase\` uses the history to auto-tighten the activation threshold and grow the hot-module list. The call is best-effort and never blocks; missing it just costs one observation.
+
+Audit & visibility:
+- Each \`epic_run_phase\` invocation appends one record to \`.swarm/evidence/epic-promotions.jsonl\` with the verdict and rationale.
+- \`/swarm epic status\` shows the session's most recent decision; \`/swarm epic last\` shows the most recent decision from the durable evidence log; \`/swarm epic decide\` previews the verdict without dispatching.
 
 Do NOT skip phase reviewer/critic. Epic Mode does not change Stage B requirements — it only chooses whether to parallelize.
 `;

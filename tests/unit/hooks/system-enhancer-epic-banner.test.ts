@@ -32,8 +32,16 @@ afterEach(() => {
 describe('EPIC_MODE_BANNER content', () => {
 	test('instructs the architect to use epic_run_phase, not lean_turbo_run_phase', () => {
 		expect(EPIC_MODE_BANNER).toContain('epic_run_phase');
-		expect(EPIC_MODE_BANNER).toContain('INSTEAD of');
 		expect(EPIC_MODE_BANNER).toContain('lean_turbo_run_phase');
+		// New phrasing (post-live-test fix): the banner now mandates the
+		// epic_run_phase call BEFORE any phase work and forbids calling
+		// lean_turbo_run_phase directly.
+		expect(EPIC_MODE_BANNER).toContain(
+			'Do NOT call `lean_turbo_run_phase` directly',
+		);
+		expect(EPIC_MODE_BANNER).toContain(
+			'Call `epic_run_phase` BEFORE any phase work',
+		);
 	});
 
 	test('explains both promote and demote outcomes', () => {
@@ -43,6 +51,18 @@ describe('EPIC_MODE_BANNER content', () => {
 
 	test('preserves the Stage B / phase-reviewer requirement', () => {
 		expect(EPIC_MODE_BANNER.toLowerCase()).toContain('phase reviewer');
+	});
+
+	test('mandates that the architect surface the verdict to the user', () => {
+		// The visibility-fix from live testing: without this, weaker models
+		// (Kimi K2.6 observed) ran epic_run_phase silently and the user had
+		// no signal that Epic Mode was doing anything.
+		expect(EPIC_MODE_BANNER).toContain('SURFACE the verdict');
+		expect(EPIC_MODE_BANNER).toContain('Epic Mode: <DECISION>');
+	});
+
+	test('lists /swarm epic last as a visibility command', () => {
+		expect(EPIC_MODE_BANNER).toContain('/swarm epic last');
 	});
 });
 

@@ -25,6 +25,7 @@ import {
 } from '../turbo/epic/activation.js';
 import { getCoChangeData } from '../turbo/epic/cochange-source.js';
 import type { CouplingTask } from '../turbo/epic/coupling-report.js';
+import { readPromotionEvidence } from '../turbo/epic/promotion-evidence.js';
 import {
 	disableEpicMode,
 	enableEpicMode,
@@ -50,6 +51,7 @@ export const _internals = {
 	enableEpicMode,
 	disableEpicMode,
 	readTaskScopes,
+	readPromotionEvidence,
 };
 
 export async function handleEpicCommand(
@@ -72,6 +74,8 @@ export async function handleEpicCommand(
 			return renderStatus(directory, sessionID);
 		case 'decide':
 			return renderDecide(directory);
+		case 'last':
+			return renderLast(directory);
 		case 'on':
 			return enableAndAck(directory, sessionID, session);
 		case 'off':
@@ -86,7 +90,7 @@ export async function handleEpicCommand(
 			// don't change anything. Explicit `on/off` are the mutators.
 			return renderStatus(directory, sessionID);
 		default:
-			return `Unknown subcommand '${arg0}'.\n\nUsage:\n  /swarm epic on | off | status | decide\n  /swarm epic         (shows status)`;
+			return `Unknown subcommand '${arg0}'.\n\nUsage:\n  /swarm epic on | off | status | decide | last\n  /swarm epic         (shows status)`;
 	}
 }
 
@@ -159,6 +163,63 @@ function renderStatus(directory: string, sessionID: string): string {
 			lines.push('- Blocking reasons:');
 			for (const r of ld.blockingReasons) lines.push(`  - ${r}`);
 		}
+	}
+	return lines.join('\n');
+}
+
+function renderLast(directory: string): string {
+	// `/swarm epic last` — shows the most recent decision from the durable
+	// evidence log. Complements `/swarm epic status` (which reads in-memory
+	// session state and only sees decisions made by this session) and
+	// `/swarm epic decide` (a what-if that never writes evidence). `last`
+	// is the user's escape hatch when the architect (e.g. Kimi K2.6) runs
+	// `epic_run_phase` but doesn't surface the verdict — they can pull it
+	// from the log explicitly.
+	let records;
+	try {
+		records = _internals.readPromotionEvidence(directory);
+	} catch (err) {
+		return `Error reading epic-promotions.jsonl: ${err instanceof Error ? err.message : String(err)}`;
+	}
+	if (records.length === 0) {
+		return [
+			'## Epic Mode — Last Decision',
+			'',
+			'No decisions recorded yet at `.swarm/evidence/epic-promotions.jsonl`.',
+			'',
+			'A record is appended every time the architect calls `epic_run_phase`.',
+			'If you expected one and there isn\'t, the architect likely didn\'t invoke it for this phase — run `/swarm epic decide` to preview what Epic Mode would decide right now.',
+		].join('\n');
+	}
+	const last = records[records.length - 1]!;
+	const lines: string[] = ['## Epic Mode — Last Decision', ''];
+	lines.push(`- Decided at: ${last.timestamp}`);
+	lines.push(`- Session: ${last.sessionID}`);
+	if (last.phase !== undefined) lines.push(`- Phase: ${last.phase}`);
+	lines.push(`- Decision: **${last.verdict.decision}**`);
+	lines.push(`- p: ${last.verdict.p.toFixed(3)}`);
+	if (last.verdict.blockingReasons.length > 0) {
+		lines.push('- Blocking reasons:');
+		for (const r of last.verdict.blockingReasons) lines.push(`  - ${r}`);
+	}
+	lines.push('');
+	lines.push('### Gate-by-gate');
+	const r = last.verdict.rationale;
+	lines.push(
+		`- **p-threshold**: ${r.pCheck.passed ? 'pass' : 'fail'} (p=${r.pCheck.p.toFixed(3)} vs threshold ${r.pCheck.threshold.toFixed(3)})`,
+	);
+	const hot = r.hotModuleCheck.touchedHotModules;
+	lines.push(
+		`- **hot-module**: ${r.hotModuleCheck.passed ? 'pass' : `fail — touched ${hot.slice(0, 3).join(', ')}${hot.length > 3 ? `, +${hot.length - 3} more` : ''}`}`,
+	);
+	lines.push(
+		`- **greenfield**: ${r.greenfieldCheck.passed ? 'pass' : 'fail'} (${r.greenfieldCheck.commitsObserved} commits observed, ${r.greenfieldCheck.minCommits} required)`,
+	);
+	if (records.length > 1) {
+		lines.push('');
+		lines.push(
+			`(History: ${records.length} decisions total in this directory's epic-promotions.jsonl)`,
+		);
 	}
 	return lines.join('\n');
 }

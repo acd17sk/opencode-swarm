@@ -224,3 +224,90 @@ describe('handleEpicCommand — decide (read-only what-if)', () => {
 		expect(out).toContain('No plan found');
 	});
 });
+
+describe('handleEpicCommand — last (most recent decision from evidence)', () => {
+	test('returns a "no decisions yet" message when the evidence file is empty', async () => {
+		_internals.readPromotionEvidence = (() => []) as never;
+		const out = await handleEpicCommand('/fake', ['last'], 'sess-1');
+		expect(out).toContain('Epic Mode — Last Decision');
+		expect(out).toContain('No decisions recorded yet');
+		expect(out).toContain('run `/swarm epic decide`');
+	});
+
+	test('renders the most recent record with verdict, p, and gate-by-gate', async () => {
+		_internals.readPromotionEvidence = (() => [
+			{
+				timestamp: '2026-05-27T11:00:00Z',
+				sessionID: 'sess-prior',
+				phase: 1,
+				verdict: {
+					decision: 'promote' as const,
+					p: 0.12,
+					rationale: {
+						pCheck: { passed: true, p: 0.12, threshold: 0.3 },
+						hotModuleCheck: { passed: true, touchedHotModules: [] },
+						greenfieldCheck: {
+							passed: true,
+							commitsObserved: 80,
+							minCommits: 20,
+						},
+					},
+					blockingReasons: [],
+				},
+			},
+			{
+				timestamp: '2026-05-28T09:30:00Z',
+				sessionID: 'sess-current',
+				phase: 2,
+				verdict: {
+					decision: 'demote' as const,
+					p: 0.55,
+					rationale: {
+						pCheck: { passed: false, p: 0.55, threshold: 0.3 },
+						hotModuleCheck: {
+							passed: false,
+							touchedHotModules: ['src/global.ts'],
+						},
+						greenfieldCheck: {
+							passed: true,
+							commitsObserved: 50,
+							minCommits: 20,
+						},
+					},
+					blockingReasons: [
+						'p (0.550) exceeds activation threshold (0.300)',
+						'plan touches Lean Turbo hot module(s): src/global.ts',
+					],
+				},
+			},
+		]) as never;
+
+		const out = await handleEpicCommand('/fake', ['last'], 'sess-1');
+		// Must show the LAST (second) record, not the first.
+		expect(out).toContain('Decided at: 2026-05-28T09:30:00Z');
+		expect(out).toContain('Session: sess-current');
+		expect(out).toContain('Phase: 2');
+		expect(out).toContain('Decision: **demote**');
+		expect(out).toContain('p: 0.550');
+		expect(out).toContain(
+			'p (0.550) exceeds activation threshold (0.300)',
+		);
+		expect(out).toContain('plan touches Lean Turbo hot module(s)');
+		// Gate-by-gate section
+		expect(out).toContain('p-threshold');
+		expect(out).toContain('hot-module');
+		expect(out).toContain('greenfield');
+		expect(out).toContain('src/global.ts');
+		// History footer when records.length > 1
+		expect(out).toContain('2 decisions total');
+	});
+
+	test('surfaces read errors as a friendly message rather than throwing', async () => {
+		_internals.readPromotionEvidence = (() => {
+			throw new Error('disk fell off');
+		}) as never;
+		const out = await handleEpicCommand('/fake', ['last'], 'sess-1');
+		expect(out).toContain('Error reading epic-promotions.jsonl');
+		expect(out).toContain('disk fell off');
+	});
+});

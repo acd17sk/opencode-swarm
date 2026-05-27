@@ -483,8 +483,8 @@ export const COMMAND_REGISTRY = {
 		description:
 			'Toggle Epic Mode (autonomous coupling-aware parallel activation) and inspect its decisions',
 		details:
-			'Epic Mode is an additive overlay that composes Lean Turbo. When on, the architect should call epic_run_phase(phase) instead of lean_turbo_run_phase(phase); epic_run_phase computes the plan-wide coupling coefficient p and gates parallel promotion on p + a hot-module check + a greenfield rule. Subcommands: on, off, status, decide (read-only what-if). Bare /swarm epic toggles. Decision rationale persists to .swarm/evidence/epic-promotions.jsonl after every epic_run_phase invocation.',
-		args: 'on | off | status | decide',
+			'Epic Mode is an additive overlay that composes Lean Turbo. When on, the architect should call epic_run_phase(phase) instead of lean_turbo_run_phase(phase); epic_run_phase computes the plan-wide coupling coefficient p and gates parallel promotion on p + a hot-module check + a greenfield rule. Subcommands: on, off, status, decide (read-only what-if), last (most recent decision from durable evidence log). Bare /swarm epic shows status. Decision rationale persists to .swarm/evidence/epic-promotions.jsonl after every epic_run_phase invocation.',
+		args: 'on | off | status | decide | last',
 		category: 'diagnostics',
 	},
 	'dark-matter': {
