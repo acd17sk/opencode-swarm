@@ -38,8 +38,11 @@ describe('swarm command hook routing', () => {
 		const handler = createSwarmCommandHandler('/tmp/project', {});
 		const output = { parts: [] as unknown[] };
 
+		// `dark-matter` is a real command not in the v1 allowlist — used here
+		// instead of `turbo` because `turbo` was added to the allowlist to
+		// fix the Kimi K2.6 fallback-loop bug (same as `epic` before it).
 		await handler(
-			{ command: 'swarm', arguments: 'turbo on', sessionID: 's1' },
+			{ command: 'swarm', arguments: 'dark-matter scan', sessionID: 's1' },
 			output,
 		);
 
@@ -47,6 +50,20 @@ describe('swarm command hook routing', () => {
 		expect(textPart(output)).toContain(
 			'Canonical opencode-swarm command output follows.',
 		);
+	});
+
+	test('/swarm turbo on/off/lean/standard/epic/status route through the swarm_command tool path', async () => {
+		const handler = createSwarmCommandHandler('/tmp/project', {});
+		for (const subcmd of ['on', 'off', 'lean', 'standard', 'epic', 'status']) {
+			const output = { parts: [] as unknown[] };
+			await handler(
+				{ command: 'swarm', arguments: `turbo ${subcmd}`, sessionID: 's1' },
+				output,
+			);
+			expect(textPart(output)).toContain('Call the `swarm_command` tool');
+			expect(textPart(output)).toContain('"command": "turbo"');
+			expect(textPart(output)).toContain(`"${subcmd}"`);
+		}
 	});
 
 	test('/swarm epic routes through the swarm_command tool path (bare)', async () => {

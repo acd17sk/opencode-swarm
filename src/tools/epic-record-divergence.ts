@@ -167,8 +167,15 @@ export const epic_record_divergence: ToolDefinition = createSwarmTool({
 			.describe('Task id whose divergence should be recorded'),
 		sessionID: z.string().describe('Active session ID'),
 	},
-	execute: async (args: unknown, _directory: string) => {
-		const { taskId, sessionID } = args as EpicRecordDivergenceArgs;
+	execute: async (args: unknown, _directory: string, ctx) => {
+		const { taskId, sessionID: argSessionID } = args as EpicRecordDivergenceArgs;
+		// Same rationale as epic_run_phase: prefer the framework-supplied
+		// session over a model-hallucinated value, since `hasActiveEpicMode`
+		// is strictly per-session.
+		const sessionID =
+			ctx?.sessionID && ctx.sessionID.length > 0
+				? ctx.sessionID
+				: argSessionID;
 		return JSON.stringify(
 			await executeEpicRecordDivergence({
 				directory: _directory,

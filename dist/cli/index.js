@@ -44031,18 +44031,14 @@ async function handleEpicCommand(directory, args, sessionID) {
       return enableAndAck(directory, sessionID, session);
     case "off":
       return disableAndAck(directory, sessionID, session);
-    case undefined: {
-      if (_internals15.isEpicModeActive(directory, sessionID)) {
-        return disableAndAck(directory, sessionID, session);
-      }
-      return enableAndAck(directory, sessionID, session);
-    }
+    case undefined:
+      return renderStatus(directory, sessionID);
     default:
       return `Unknown subcommand '${arg0}'.
 
 Usage:
   /swarm epic on | off | status | decide
-  /swarm epic         (toggle)`;
+  /swarm epic         (shows status)`;
   }
 }
 function enableAndAck(directory, sessionID, session) {
@@ -57324,7 +57320,9 @@ var init_tool_policy = __esm(() => {
     "memory migrate",
     "sync-plan",
     "export",
-    "list-agents"
+    "list-agents",
+    "epic",
+    "turbo"
   ];
   SWARM_COMMAND_TOOL_ALLOWLIST = new Set([
     "agents",
@@ -57348,7 +57346,8 @@ var init_tool_policy = __esm(() => {
     "memory evaluate",
     "sync-plan",
     "export",
-    "epic"
+    "epic",
+    "turbo"
   ]);
   HUMAN_ONLY_SWARM_COMMANDS = new Set([
     "acknowledge-spec-drift",

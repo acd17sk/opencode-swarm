@@ -356,8 +356,19 @@ export const epic_run_phase: ToolDefinition = createSwarmTool({
 		phase: z.number().int().positive().describe('Phase number to execute'),
 		sessionID: z.string().describe('Active session ID'),
 	},
-	execute: async (args: unknown, _directory: string) => {
-		const { phase, sessionID } = args as EpicRunPhaseArgs;
+	execute: async (args: unknown, _directory: string, ctx) => {
+		const { phase, sessionID: argSessionID } = args as EpicRunPhaseArgs;
+		// Prefer the framework-supplied session ID over whatever the model
+		// passed: weaker models hallucinate `sessionID="default"` (or copy
+		// from a stale prompt) and the strict per-session
+		// `isEpicModeActive` check then refuses to dispatch even though
+		// the user toggled epic on for the *real* session. `ctx.sessionID`
+		// is the actual current session and is the one that toggled the
+		// state, so it's the right source of truth.
+		const sessionID =
+			ctx?.sessionID && ctx.sessionID.length > 0
+				? ctx.sessionID
+				: argSessionID;
 		return JSON.stringify(
 			await executeEpicRunPhase({
 				phase,

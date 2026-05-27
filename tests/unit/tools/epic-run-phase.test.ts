@@ -16,6 +16,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
 	_internals,
+	epic_run_phase,
 	executeEpicRunPhase,
 } from '../../../src/tools/epic-run-phase';
 
@@ -607,5 +608,51 @@ describe('executeEpicRunPhase — Capability D calibration wiring', () => {
 			sessionID: 's1',
 		});
 		expect(loadCalls).toBe(0);
+	});
+});
+
+describe('epic_run_phase tool — ctx.sessionID precedence (Fix B)', () => {
+	test('uses ctx.sessionID over args.sessionID when the framework supplies it', async () => {
+		// Reproduce the live failure: weaker models hallucinate
+		// sessionID="default" in args, while the framework supplies the
+		// real session via ctx. The tool must prefer ctx.
+		let observedSessionID: string | undefined;
+		_internals.isEpicModeActive = ((_dir: string, sid: string) => {
+			observedSessionID = sid;
+			return true;
+		}) as never;
+
+		const def = epic_run_phase as unknown as {
+			execute: (
+				args: unknown,
+				ctx?: { sessionID?: string; directory?: string },
+			) => Promise<unknown>;
+		};
+		await def.execute(
+			{ phase: 1, sessionID: 'default' },
+			{ sessionID: 'real-session-abc123', directory: '/fake' },
+		);
+		expect(observedSessionID).toBe('real-session-abc123');
+	});
+
+	test('falls back to args.sessionID when ctx is missing', async () => {
+		let observedSessionID: string | undefined;
+		_internals.isEpicModeActive = ((_dir: string, sid: string) => {
+			observedSessionID = sid;
+			return true;
+		}) as never;
+
+		const def = epic_run_phase as unknown as {
+			execute: (
+				args: unknown,
+				ctx?: { sessionID?: string; directory?: string },
+			) => Promise<unknown>;
+		};
+		// ctx with no sessionID — must use args.sessionID.
+		await def.execute(
+			{ phase: 1, sessionID: 'from-args' },
+			{ directory: '/fake' },
+		);
+		expect(observedSessionID).toBe('from-args');
 	});
 });

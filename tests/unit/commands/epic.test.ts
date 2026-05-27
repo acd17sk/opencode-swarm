@@ -134,11 +134,22 @@ describe('handleEpicCommand — on / off / toggle', () => {
 		expect(sessionFlag.epicModeActive).toBe(false);
 	});
 
-	test('bare `/swarm epic` toggles', async () => {
+	test('bare `/swarm epic` shows status and does NOT toggle (anti-loop)', async () => {
+		// Toggle-by-default created an architect-loop with weaker models:
+		// the model called `swarm_command [command=epic]` without args to
+		// "check state", which flipped the flag, then it tried again →
+		// flip back → loop. Status-by-default is idempotent and safe.
+		const beforeEnable = enableCalls;
+		const beforeDisable = disableCalls;
+		const out = await handleEpicCommand('/fake', [], 'sess-1');
+		expect(out).toContain('Epic Mode — Status');
+		expect(enableCalls).toBe(beforeEnable);
+		expect(disableCalls).toBe(beforeDisable);
+
+		// Calling it again is also idempotent — same observation.
 		await handleEpicCommand('/fake', [], 'sess-1');
-		expect(enableCalls).toBe(1);
-		await handleEpicCommand('/fake', [], 'sess-1');
-		expect(disableCalls).toBe(1);
+		expect(enableCalls).toBe(beforeEnable);
+		expect(disableCalls).toBe(beforeDisable);
 	});
 
 	test('unknown subcommand returns usage', async () => {

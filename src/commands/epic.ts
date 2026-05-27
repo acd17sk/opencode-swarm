@@ -76,15 +76,17 @@ export async function handleEpicCommand(
 			return enableAndAck(directory, sessionID, session);
 		case 'off':
 			return disableAndAck(directory, sessionID, session);
-		case undefined: {
-			// No argument → toggle.
-			if (_internals.isEpicModeActive(directory, sessionID)) {
-				return disableAndAck(directory, sessionID, session);
-			}
-			return enableAndAck(directory, sessionID, session);
-		}
+		case undefined:
+			// No argument → status (NOT toggle). Toggle-by-default created
+			// an infinite loop with weaker models (Kimi K2.6 observed):
+			// when the architect called `swarm_command [command=epic]`
+			// without args to "check state", the flag flipped; the next
+			// call flipped it back; loop. Status is idempotent and matches
+			// the user's intent on a bare `/swarm epic` — see what's on,
+			// don't change anything. Explicit `on/off` are the mutators.
+			return renderStatus(directory, sessionID);
 		default:
-			return `Unknown subcommand '${arg0}'.\n\nUsage:\n  /swarm epic on | off | status | decide\n  /swarm epic         (toggle)`;
+			return `Unknown subcommand '${arg0}'.\n\nUsage:\n  /swarm epic on | off | status | decide\n  /swarm epic         (shows status)`;
 	}
 }
 

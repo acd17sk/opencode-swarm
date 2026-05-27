@@ -65454,18 +65454,14 @@ async function handleEpicCommand(directory, args2, sessionID) {
       return enableAndAck(directory, sessionID, session);
     case "off":
       return disableAndAck(directory, sessionID, session);
-    case undefined: {
-      if (_internals25.isEpicModeActive(directory, sessionID)) {
-        return disableAndAck(directory, sessionID, session);
-      }
-      return enableAndAck(directory, sessionID, session);
-    }
+    case undefined:
+      return renderStatus(directory, sessionID);
     default:
       return `Unknown subcommand '${arg0}'.
 
 Usage:
   /swarm epic on | off | status | decide
-  /swarm epic         (toggle)`;
+  /swarm epic         (shows status)`;
   }
 }
 function enableAndAck(directory, sessionID, session) {
@@ -80177,7 +80173,9 @@ var init_tool_policy = __esm(() => {
     "memory migrate",
     "sync-plan",
     "export",
-    "list-agents"
+    "list-agents",
+    "epic",
+    "turbo"
   ];
   SWARM_COMMAND_TOOL_ALLOWLIST = new Set([
     "agents",
@@ -80201,7 +80199,8 @@ var init_tool_policy = __esm(() => {
     "memory evaluate",
     "sync-plan",
     "export",
-    "epic"
+    "epic",
+    "turbo"
   ]);
   HUMAN_ONLY_SWARM_COMMANDS = new Set([
     "acknowledge-spec-drift",
@@ -120203,8 +120202,9 @@ var epic_record_divergence = createSwarmTool({
     taskId: exports_external.string().describe("Task id whose divergence should be recorded"),
     sessionID: exports_external.string().describe("Active session ID")
   },
-  execute: async (args2, _directory) => {
-    const { taskId, sessionID } = args2;
+  execute: async (args2, _directory, ctx) => {
+    const { taskId, sessionID: argSessionID } = args2;
+    const sessionID = ctx?.sessionID && ctx.sessionID.length > 0 ? ctx.sessionID : argSessionID;
     return JSON.stringify(await executeEpicRecordDivergence({
       directory: _directory,
       taskId,
@@ -121435,8 +121435,9 @@ var epic_run_phase = createSwarmTool({
     phase: exports_external.number().int().positive().describe("Phase number to execute"),
     sessionID: exports_external.string().describe("Active session ID")
   },
-  execute: async (args2, _directory) => {
-    const { phase, sessionID } = args2;
+  execute: async (args2, _directory, ctx) => {
+    const { phase, sessionID: argSessionID } = args2;
+    const sessionID = ctx?.sessionID && ctx.sessionID.length > 0 ? ctx.sessionID : argSessionID;
     return JSON.stringify(await executeEpicRunPhase({
       phase,
       sessionID,

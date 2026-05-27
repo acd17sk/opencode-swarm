@@ -37,6 +37,20 @@ export const SWARM_COMMAND_TOOL_COMMANDS = [
 	'sync-plan',
 	'export',
 	'list-agents',
+	// Epic Mode (Capability C). Required here so the swarm_command tool's
+	// Zod enum accepts `command: "epic"`; without it the architect's tool
+	// schema constrains `command` to the older set, and weaker models
+	// (Kimi K2.6 observed) silently substitute a near-by valid value
+	// (`diagnose`, `config`) and loop because the verbatim-show check
+	// against the canonical output never succeeds.
+	'epic',
+	// Turbo Mode. Same Kimi-loop bug — when `/swarm turbo on/off/lean/
+	// standard/epic/status` falls into the canonical fallback path, weaker
+	// models hallucinate `command=epic` or `command=config` and loop. The
+	// turbo handler itself does internal arg validation, so accepting it
+	// through the tool path is safe; bare `/swarm turbo` is a toggle, but
+	// the explicit subcommands are idempotent.
+	'turbo',
 ] as const;
 
 export type SwarmCommandToolInputCommand =
@@ -73,6 +87,13 @@ export const SWARM_COMMAND_TOOL_ALLOWLIST = new Set<string>([
 	// with {...}" framing that prevents weaker models from hallucinating
 	// a tool call when they see only the canonical output text.
 	'epic',
+	// Turbo Mode — same Kimi-loop pathology when falling into the
+	// canonical-fallback path. The handler validates its subcommand
+	// (on/off/lean/standard/epic/status) internally; allowing it through
+	// the tool path gives the architect the explicit "call swarm_command
+	// exactly once with {...}" framing instead of dropping it on
+	// "show this verbatim" alone.
+	'turbo',
 ]);
 
 /**
