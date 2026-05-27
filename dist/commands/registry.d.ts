@@ -234,6 +234,20 @@ export declare const COMMAND_REGISTRY: {
         readonly args: "";
         readonly category: "utility";
     };
+    readonly coupling: {
+        readonly handler: (ctx: CommandContext) => Promise<string>;
+        readonly description: "Measure plan coupling (p) and rank modules driving conflicts (Epic mode preview)";
+        readonly details: "Computes the coupling coefficient p = (conflicting task pairs) / (total task pairs) over the current plan, using Epic mode's combined path + co-change conflict signal. Surfaces per-module contention and a ranked decoupling roadmap. Read-only: runs independent of `turbo.epic.cochange.enabled` so it can be used as a what-if diagnostic before opting into the runtime signal.";
+        readonly args: "--phase <n>, --threshold <-1..1>, --min-co-changes <n>, --format markdown|json, --persist";
+        readonly category: "diagnostics";
+    };
+    readonly epic: {
+        readonly handler: (ctx: CommandContext) => Promise<string>;
+        readonly description: "Toggle Epic Mode (autonomous coupling-aware parallel activation) and inspect its decisions";
+        readonly details: "Epic Mode is an additive overlay that composes Lean Turbo. When on, the architect should call epic_run_phase(phase) instead of lean_turbo_run_phase(phase); epic_run_phase computes the plan-wide coupling coefficient p and gates parallel promotion on p + a hot-module check + a greenfield rule. Subcommands: on, off, status, decide (read-only what-if). Bare /swarm epic toggles. Decision rationale persists to .swarm/evidence/epic-promotions.jsonl after every epic_run_phase invocation.";
+        readonly args: "on | off | status | decide";
+        readonly category: "diagnostics";
+    };
     readonly 'dark-matter': {
         readonly handler: (ctx: CommandContext) => Promise<string>;
         readonly description: "Detect hidden file couplings via co-change NPMI analysis";
@@ -381,8 +395,8 @@ export declare const COMMAND_REGISTRY: {
     };
     readonly turbo: {
         readonly handler: (ctx: CommandContext) => Promise<string>;
-        readonly description: "Toggle Turbo Mode strategy for the active session [on|off|lean|standard|status]";
-        readonly args: "on, off, lean, standard, status";
+        readonly description: "Toggle Turbo Mode strategy for the active session [on|off|lean|standard|epic|status]";
+        readonly args: "on, off, lean, standard, epic, status";
         readonly details: string;
         readonly category: "utility";
     };

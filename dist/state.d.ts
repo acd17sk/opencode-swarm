@@ -169,6 +169,11 @@ export interface AgentSessionState {
      *  When set, overrides the plan's execution_profile.max_concurrent_tasks
      *  for delegation-gate guidance. Cleared on session reset. */
     maxConcurrencyOverride?: number;
+    /** Whether Epic Mode (additive overlay above Lean Turbo) is active for
+     *  this session. Durable mirror lives in `.swarm/epic-state.json`; this
+     *  in-memory flag matches what `src/turbo/epic/state.ts` persists and is
+     *  what `hasActiveEpicMode(sessionID)` reads on the hot path. */
+    epicModeActive?: boolean;
     /** Session-level QA gate overrides layered on top of the spec-level profile.
      *  Overrides can only enable gates (true); false values are ignored by
      *  getEffectiveGates. Cleared on session reset. Optional for backwards
@@ -555,6 +560,16 @@ export declare function hasActiveFullAuto(sessionID?: string): boolean;
  *          or if any session has that combination when no sessionID provided.
  */
 export declare function hasActiveLeanTurbo(sessionID?: string): boolean;
+/**
+ * Check if Epic Mode is active for a specific session or ANY session.
+ * Mirrors `hasActiveLeanTurbo` but reads `session.epicModeActive`. The flag
+ * is set by `enableEpicMode` (and by `/swarm turbo epic on`) and cleared by
+ * `disableEpicMode` (and `/swarm turbo epic off`). The durable mirror is
+ * `.swarm/epic-state.json` — see `src/turbo/epic/state.ts`. Epic Mode does
+ * NOT require `turboStrategy === 'lean'`; it composes Lean Turbo internally
+ * inside `epic_run_phase`.
+ */
+export declare function hasActiveEpicMode(sessionID?: string): boolean;
 export declare function setSessionEnvironment(sessionId: string, profile: EnvironmentProfile): void;
 export declare function getSessionEnvironment(sessionId: string): EnvironmentProfile | undefined;
 export declare function ensureSessionEnvironment(sessionId: string): EnvironmentProfile;
@@ -597,6 +612,7 @@ export declare const _internals: {
     hasActiveFullAuto: typeof hasActiveFullAuto;
     hasActiveTurboMode: typeof hasActiveTurboMode;
     hasActiveLeanTurbo: typeof hasActiveLeanTurbo;
+    hasActiveEpicMode: typeof hasActiveEpicMode;
     buildRehydrationCache: typeof buildRehydrationCache;
     applyRehydrationCache: typeof applyRehydrationCache;
     rehydrateSessionFromDisk: typeof rehydrateSessionFromDisk;

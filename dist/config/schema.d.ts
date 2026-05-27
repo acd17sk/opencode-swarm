@@ -799,8 +799,13 @@ export declare const EpicConfigSchema: z.ZodObject<{
         enabled: z.ZodDefault<z.ZodBoolean>;
         threshold: z.ZodDefault<z.ZodNumber>;
         min_co_changes: z.ZodDefault<z.ZodNumber>;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
+    }, z.core.$strict>>;
+    mode: z.ZodOptional<z.ZodObject<{
+        enabled: z.ZodDefault<z.ZodBoolean>;
+        activation_threshold: z.ZodDefault<z.ZodNumber>;
+        min_commits_for_signal: z.ZodDefault<z.ZodNumber>;
+    }, z.core.$strict>>;
+}, z.core.$strict>;
 export type EpicConfig = z.infer<typeof EpicConfigSchema>;
 export declare const StandardTurboConfigSchema: z.ZodObject<{
     strategy: z.ZodLiteral<"standard">;
@@ -823,8 +828,13 @@ export declare const StandardTurboConfigSchema: z.ZodObject<{
             enabled: z.ZodDefault<z.ZodBoolean>;
             threshold: z.ZodDefault<z.ZodNumber>;
             min_co_changes: z.ZodDefault<z.ZodNumber>;
-        }, z.core.$strip>>;
-    }, z.core.$strip>>;
+        }, z.core.$strict>>;
+        mode: z.ZodOptional<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            activation_threshold: z.ZodDefault<z.ZodNumber>;
+            min_commits_for_signal: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strict>>;
+    }, z.core.$strict>>;
 }, z.core.$strip>;
 export declare const LeanTurboStrategyConfigSchema: z.ZodObject<{
     strategy: z.ZodLiteral<"lean">;
@@ -847,8 +857,13 @@ export declare const LeanTurboStrategyConfigSchema: z.ZodObject<{
             enabled: z.ZodDefault<z.ZodBoolean>;
             threshold: z.ZodDefault<z.ZodNumber>;
             min_co_changes: z.ZodDefault<z.ZodNumber>;
-        }, z.core.$strip>>;
-    }, z.core.$strip>>;
+        }, z.core.$strict>>;
+        mode: z.ZodOptional<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            activation_threshold: z.ZodDefault<z.ZodNumber>;
+            min_commits_for_signal: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strict>>;
+    }, z.core.$strict>>;
 }, z.core.$strip>;
 export declare const TurboConfigSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     strategy: z.ZodLiteral<"standard">;
@@ -871,8 +886,13 @@ export declare const TurboConfigSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
             enabled: z.ZodDefault<z.ZodBoolean>;
             threshold: z.ZodDefault<z.ZodNumber>;
             min_co_changes: z.ZodDefault<z.ZodNumber>;
-        }, z.core.$strip>>;
-    }, z.core.$strip>>;
+        }, z.core.$strict>>;
+        mode: z.ZodOptional<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            activation_threshold: z.ZodDefault<z.ZodNumber>;
+            min_commits_for_signal: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strict>>;
+    }, z.core.$strict>>;
 }, z.core.$strip>, z.ZodObject<{
     strategy: z.ZodLiteral<"lean">;
     lean: z.ZodObject<{
@@ -894,8 +914,13 @@ export declare const TurboConfigSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
             enabled: z.ZodDefault<z.ZodBoolean>;
             threshold: z.ZodDefault<z.ZodNumber>;
             min_co_changes: z.ZodDefault<z.ZodNumber>;
-        }, z.core.$strip>>;
-    }, z.core.$strip>>;
+        }, z.core.$strict>>;
+        mode: z.ZodOptional<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            activation_threshold: z.ZodDefault<z.ZodNumber>;
+            min_commits_for_signal: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strict>>;
+    }, z.core.$strict>>;
 }, z.core.$strip>], "strategy">;
 export type TurboConfig = z.infer<typeof TurboConfigSchema>;
 export declare const PluginConfigSchema: z.ZodObject<{
@@ -1423,8 +1448,13 @@ export declare const PluginConfigSchema: z.ZodObject<{
                 enabled: z.ZodDefault<z.ZodBoolean>;
                 threshold: z.ZodDefault<z.ZodNumber>;
                 min_co_changes: z.ZodDefault<z.ZodNumber>;
-            }, z.core.$strip>>;
-        }, z.core.$strip>>;
+            }, z.core.$strict>>;
+            mode: z.ZodOptional<z.ZodObject<{
+                enabled: z.ZodDefault<z.ZodBoolean>;
+                activation_threshold: z.ZodDefault<z.ZodNumber>;
+                min_commits_for_signal: z.ZodDefault<z.ZodNumber>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
     }, z.core.$strip>, z.ZodObject<{
         strategy: z.ZodLiteral<"lean">;
         lean: z.ZodObject<{
@@ -1446,8 +1476,13 @@ export declare const PluginConfigSchema: z.ZodObject<{
                 enabled: z.ZodDefault<z.ZodBoolean>;
                 threshold: z.ZodDefault<z.ZodNumber>;
                 min_co_changes: z.ZodDefault<z.ZodNumber>;
-            }, z.core.$strip>>;
-        }, z.core.$strip>>;
+            }, z.core.$strict>>;
+            mode: z.ZodOptional<z.ZodObject<{
+                enabled: z.ZodDefault<z.ZodBoolean>;
+                activation_threshold: z.ZodDefault<z.ZodNumber>;
+                min_commits_for_signal: z.ZodDefault<z.ZodNumber>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
     }, z.core.$strip>], "strategy">>;
     turbo_mode: z.ZodOptional<z.ZodDefault<z.ZodBoolean>>;
     quiet: z.ZodOptional<z.ZodDefault<z.ZodBoolean>>;
