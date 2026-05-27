@@ -80200,7 +80200,8 @@ var init_tool_policy = __esm(() => {
     "memory export",
     "memory evaluate",
     "sync-plan",
-    "export"
+    "export",
+    "epic"
   ]);
   HUMAN_ONLY_SWARM_COMMANDS = new Set([
     "acknowledge-spec-drift",

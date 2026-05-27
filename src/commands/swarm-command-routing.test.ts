@@ -49,6 +49,33 @@ describe('swarm command hook routing', () => {
 		);
 	});
 
+	test('/swarm epic routes through the swarm_command tool path (bare)', async () => {
+		const handler = createSwarmCommandHandler('/tmp/project', {});
+		const output = { parts: [] as unknown[] };
+
+		await handler(
+			{ command: 'swarm', arguments: 'epic', sessionID: 's1' },
+			output,
+		);
+
+		expect(textPart(output)).toContain('Call the `swarm_command` tool');
+		expect(textPart(output)).toContain('"command": "epic"');
+	});
+
+	test('/swarm epic on/off/status/decide all route through the swarm_command tool path', async () => {
+		const handler = createSwarmCommandHandler('/tmp/project', {});
+		for (const subcmd of ['on', 'off', 'status', 'decide']) {
+			const output = { parts: [] as unknown[] };
+			await handler(
+				{ command: 'swarm', arguments: `epic ${subcmd}`, sessionID: 's1' },
+				output,
+			);
+			expect(textPart(output)).toContain('Call the `swarm_command` tool');
+			expect(textPart(output)).toContain('"command": "epic"');
+			expect(textPart(output)).toContain(`"${subcmd}"`);
+		}
+	});
+
 	test('uses canonical fallback when the active agent does not own swarm_command', async () => {
 		const handler = createSwarmCommandHandler(
 			'/tmp/project',

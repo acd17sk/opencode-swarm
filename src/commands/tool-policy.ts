@@ -67,6 +67,12 @@ export const SWARM_COMMAND_TOOL_ALLOWLIST = new Set<string>([
 	'memory evaluate',
 	'sync-plan',
 	'export',
+	// Epic Mode (Capability C) — handleEpicCommand owns the subcommand
+	// dispatch (on/off/status/decide); routing through the swarm_command
+	// tool path gives the architect the "call swarm_command exactly once
+	// with {...}" framing that prevents weaker models from hallucinating
+	// a tool call when they see only the canonical output text.
+	'epic',
 ]);
 
 /**
