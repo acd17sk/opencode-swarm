@@ -1018,6 +1018,7 @@ Behavioral changes:
 - **On a "demoted" verdict, fall back to the standard per-task serial flow** for that phase (delegate to coder, run Stage B per task, etc.). Do not attempt to invoke \`lean_turbo_run_phase\` after a demote — Epic Mode has already decided that this plan is too coupled to parallelize safely.
 - **On a "promoted" verdict, the tool already ran Lean Turbo** for that phase; the result includes \`lanes\`, \`degradedTasks\`, \`serializedTasks\` just like \`lean_turbo_run_phase\` would have produced. Phase reviewer + critic are still required at \`phase_complete\` per Lean Turbo's existing rules.
 - Each \`epic_run_phase\` invocation appends one record to \`.swarm/evidence/epic-promotions.jsonl\` with the verdict and rationale. \`/swarm epic status\` shows the most recent decision; \`/swarm epic decide\` previews the verdict without dispatching.
+- **After every \`update_task_status(task_id, status="completed")\` call, also call \`epic_record_divergence(directory, taskId, sessionID)\`.** This feeds the calibration loop (Capability D) — it compares the task's declared scope against the files the coder actually wrote, and the next \`epic_run_phase\` uses the history to auto-tighten the activation threshold and grow the hot-module list. The call is best-effort and never blocks; missing it just costs one observation.
 
 Do NOT skip phase reviewer/critic. Epic Mode does not change Stage B requirements — it only chooses whether to parallelize.
 `;

@@ -1473,6 +1473,49 @@ export const EpicConfigSchema = z
 			})
 			.strict()
 			.optional(),
+		/**
+		 * Epic Mode calibration (Capability D). Outcome-based self-tuning.
+		 * After every task completion `epic_record_divergence` appends a
+		 * record to `.swarm/epic/divergence.jsonl` comparing declared scope
+		 * to actual files modified. On every `epic_run_phase` the calibration
+		 * engine consumes any new records and adjusts two knobs:
+		 *
+		 *   - `activationThresholdOverride` — tightens (toward zero) on
+		 *     divergence; loosens (toward `mode.activation_threshold`) only
+		 *     after `loosen_window` consecutive clean tasks. Capped by the
+		 *     static config value — calibration can never relax past static.
+		 *
+		 *   - `hotModuleAdditions` — monotonically grows. Files written
+		 *     without being declared are added permanently (a one-way
+		 *     ratchet — auto-loosening here would defeat the safety guarantee).
+		 *
+		 * State persists at `.swarm/epic/calibration.json`. Default `enabled`
+		 * matches the rest of Epic Mode — on when the parent config is
+		 * present, defaults are conservative.
+		 */
+		calibration: z
+			.object({
+				/** Master gate. When false, the calibration engine never runs and the static knobs are always used. */
+				enabled: z.boolean().default(true),
+				/**
+				 * Floor for the activation threshold. Calibration never tightens
+				 * below this — even after many divergent tasks. Below ~0.05 the
+				 * gate becomes too strict for Epic Mode to ever promote.
+				 */
+				floor_threshold: z.number().min(0).max(1).default(0.05),
+				/** Per-divergent-task tightening step (subtracted from current threshold). */
+				tighten_step: z.number().min(0).max(1).default(0.02),
+				/** Per-loosening-event step (added toward the static config value). */
+				loosen_step: z.number().min(0).max(1).default(0.01),
+				/**
+				 * Consecutive clean tasks required before the engine loosens the
+				 * threshold by `loosen_step`. After loosening the counter resets,
+				 * so a full window must elapse again before the next loosening.
+				 */
+				loosen_window: z.number().int().min(1).default(10),
+			})
+			.strict()
+			.optional(),
 	})
 	.strict();
 

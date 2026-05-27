@@ -149,6 +149,13 @@ afterEach(() => {
 	_internals.appendPromotionEvidence = realInternals.appendPromotionEvidence;
 	_internals.recordEpicDecision = realInternals.recordEpicDecision;
 	_internals.LeanTurboRunner = realInternals.LeanTurboRunner;
+	_internals.loadCalibrationState = realInternals.loadCalibrationState;
+	_internals.saveCalibrationState = realInternals.saveCalibrationState;
+	_internals.applyCalibration = realInternals.applyCalibration;
+	_internals.effectiveActivationThreshold =
+		realInternals.effectiveActivationThreshold;
+	_internals.effectiveHotModules = realInternals.effectiveHotModules;
+	_internals.readDivergenceHistory = realInternals.readDivergenceHistory;
 });
 
 describe('executeEpicRunPhase — failure modes', () => {
@@ -391,5 +398,214 @@ describe('executeEpicRunPhase — per-plan activation (Q1)', () => {
 		});
 		// All 3 tasks from all 3 phases, not just the 1 task from phase 2.
 		expect(receivedTaskCount).toBe(3);
+	});
+});
+
+describe('executeEpicRunPhase — Capability D calibration wiring', () => {
+	test('passes the calibration-effective threshold to decideEpicActivation', async () => {
+		// Calibration says: override threshold to 0.10 and promote 'src/hot.ts'.
+		_internals.loadCalibrationState = (() => ({
+			version: 1 as const,
+			updatedAt: 't',
+			activationThresholdOverride: 0.1,
+			hotModuleAdditions: ['src/hot.ts'],
+			consecutiveCleanCount: 0,
+			processedRecords: 0,
+		})) as never;
+		_internals.readDivergenceHistory = (() => []) as never;
+		_internals.applyCalibration = ((s: unknown) => s) as never;
+		_internals.saveCalibrationState = (() => {}) as never;
+		_internals.effectiveActivationThreshold = (() => 0.1) as never;
+		_internals.effectiveHotModules = (() => ['src/hot.ts']) as never;
+
+		let capturedOptions: {
+			activationThreshold: number;
+			extraHotModules: string[];
+		} | null = null;
+		_internals.decideEpicActivation = ((
+			_tasks: unknown,
+			_pairs: unknown,
+			_commits: unknown,
+			opts: unknown,
+		) => {
+			capturedOptions = opts as never;
+			return stub.verdict;
+		}) as never;
+
+		await executeEpicRunPhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		expect(capturedOptions).not.toBeNull();
+		expect(capturedOptions!.activationThreshold).toBe(0.1);
+		expect(capturedOptions!.extraHotModules).toEqual(['src/hot.ts']);
+	});
+
+	test('runs applyCalibration when new divergence records exist and persists the result', async () => {
+		const newRecord = {
+			timestamp: 't',
+			sessionID: 's',
+			taskId: 'T-1',
+			declaredScope: ['src/a.ts'],
+			actualFiles: ['src/a.ts', 'src/b.ts'],
+			undeclared: ['src/b.ts'],
+			unused: [],
+			divergenceRatio: 0.5,
+			isClean: false,
+		};
+		_internals.loadCalibrationState = (() => ({
+			version: 1 as const,
+			updatedAt: 't',
+			hotModuleAdditions: [],
+			consecutiveCleanCount: 0,
+			processedRecords: 0,
+		})) as never;
+		_internals.readDivergenceHistory = (() => [newRecord]) as never;
+		let applyCalls = 0;
+		_internals.applyCalibration = ((s: unknown) => {
+			applyCalls += 1;
+			return s;
+		}) as never;
+		let saveCalls = 0;
+		_internals.saveCalibrationState = (() => {
+			saveCalls += 1;
+		}) as never;
+		_internals.effectiveActivationThreshold = (() => 0.3) as never;
+		_internals.effectiveHotModules = (() => []) as never;
+
+		await executeEpicRunPhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		expect(applyCalls).toBe(1);
+		expect(saveCalls).toBe(1);
+	});
+
+	test('calibration failure falls back to static knobs and does not block dispatch', async () => {
+		_internals.loadCalibrationState = (() => {
+			throw new Error('simulated calibration corruption');
+		}) as never;
+
+		let capturedOptions: {
+			activationThreshold: number;
+			extraHotModules?: string[];
+		} | null = null;
+		_internals.decideEpicActivation = ((
+			_tasks: unknown,
+			_pairs: unknown,
+			_commits: unknown,
+			opts: unknown,
+		) => {
+			capturedOptions = opts as never;
+			return stub.verdict;
+		}) as never;
+
+		const result = await executeEpicRunPhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		// Decision proceeds with the static default (0.3 — from the stub's plugin config).
+		expect(capturedOptions).not.toBeNull();
+		expect(capturedOptions!.activationThreshold).toBe(0.3);
+		expect(capturedOptions!.extraHotModules).toEqual([]);
+		expect(result.reason).toBe('promoted');
+	});
+
+	test('save-failure falls back to durable state for THIS run (adversarial H1 — prevents double-count drift)', async () => {
+		// Records on disk that the engine would normally consume.
+		const newRecord = {
+			timestamp: 't',
+			sessionID: 's',
+			taskId: 'T-1',
+			declaredScope: ['src/a.ts'],
+			actualFiles: ['src/a.ts', 'src/b.ts'],
+			undeclared: ['src/b.ts'],
+			unused: [],
+			divergenceRatio: 0.5,
+			isClean: false,
+		};
+		const durable = {
+			version: 1 as const,
+			updatedAt: 't',
+			hotModuleAdditions: ['src/durable.ts'],
+			consecutiveCleanCount: 0,
+			processedRecords: 0,
+			activationThresholdOverride: 0.25,
+		};
+		const updated = {
+			...durable,
+			hotModuleAdditions: ['src/durable.ts', 'src/calibrated.ts'],
+			activationThresholdOverride: 0.21,
+			processedRecords: 1,
+		};
+
+		_internals.loadCalibrationState = (() => durable) as never;
+		_internals.readDivergenceHistory = (() => [newRecord]) as never;
+		_internals.applyCalibration = (() => updated) as never;
+		_internals.saveCalibrationState = (() => {
+			throw new Error('simulated EROFS');
+		}) as never;
+		_internals.effectiveActivationThreshold = ((
+			_static: number,
+			state: { activationThresholdOverride?: number },
+		) => state.activationThresholdOverride ?? _static) as never;
+		_internals.effectiveHotModules = ((
+			_base: string[],
+			state: { hotModuleAdditions: string[] },
+		) => state.hotModuleAdditions) as never;
+
+		let capturedOptions: {
+			activationThreshold: number;
+			extraHotModules?: string[];
+		} | null = null;
+		_internals.decideEpicActivation = ((
+			_tasks: unknown,
+			_pairs: unknown,
+			_commits: unknown,
+			opts: unknown,
+		) => {
+			capturedOptions = opts as never;
+			return stub.verdict;
+		}) as never;
+
+		await executeEpicRunPhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		// MUST be durable values (0.25 / 'src/durable.ts'), NOT the in-memory
+		// updated values (0.21 / 'src/calibrated.ts'). If save fails we ignore
+		// this run's delta so next run won't re-apply the same records.
+		expect(capturedOptions).not.toBeNull();
+		expect(capturedOptions!.activationThreshold).toBe(0.25);
+		expect(capturedOptions!.extraHotModules).toEqual(['src/durable.ts']);
+	});
+
+	test('honours turbo.epic.calibration.enabled=false by skipping the calibration step entirely', async () => {
+		stub.pluginConfig = {
+			turbo: {
+				strategy: 'lean',
+				lean: { max_parallel_coders: 2 },
+				epic: {
+					mode: { enabled: true },
+					calibration: { enabled: false },
+				},
+			},
+		};
+		let loadCalls = 0;
+		_internals.loadCalibrationState = (() => {
+			loadCalls += 1;
+			return null;
+		}) as never;
+
+		await executeEpicRunPhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		expect(loadCalls).toBe(0);
 	});
 });

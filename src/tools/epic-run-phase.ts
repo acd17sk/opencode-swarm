@@ -30,8 +30,18 @@ import { loadPlanJsonOnly as loadPlanJsonOnly_import } from '../plan/manager.js'
 import { swarmState } from '../state.js';
 import type { EpicActivationVerdict } from '../turbo/epic/activation.js';
 import { decideEpicActivation as decideEpicActivation_import } from '../turbo/epic/activation.js';
+import {
+	loadCalibrationState as loadCalibrationState_import,
+	saveCalibrationState as saveCalibrationState_import,
+} from '../turbo/epic/calibration.js';
+import {
+	applyCalibration as applyCalibration_import,
+	effectiveActivationThreshold as effectiveActivationThreshold_import,
+	effectiveHotModules as effectiveHotModules_import,
+} from '../turbo/epic/calibration-engine.js';
 import { getCoChangeData as getCoChangeData_import } from '../turbo/epic/cochange-source.js';
 import type { CouplingTask } from '../turbo/epic/coupling-report.js';
+import { readDivergenceHistory as readDivergenceHistory_import } from '../turbo/epic/divergence-recorder.js';
 import { appendPromotionEvidence as appendPromotionEvidence_import } from '../turbo/epic/promotion-evidence.js';
 import {
 	isEpicModeActive as isEpicModeActive_import,
@@ -84,6 +94,12 @@ export const _internals = {
 	recordEpicDecision: recordEpicDecision_import,
 	isEpicModeActive: isEpicModeActive_import,
 	readTaskScopes: readTaskScopes_import,
+	loadCalibrationState: loadCalibrationState_import,
+	saveCalibrationState: saveCalibrationState_import,
+	applyCalibration: applyCalibration_import,
+	effectiveActivationThreshold: effectiveActivationThreshold_import,
+	effectiveHotModules: effectiveHotModules_import,
+	readDivergenceHistory: readDivergenceHistory_import,
 	LeanTurboRunner: LeanTurboRunner_import as typeof LeanTurboRunner_import,
 };
 
@@ -109,10 +125,90 @@ export async function executeEpicRunPhase(
 	const { config } = _internals.loadPluginConfigWithMeta(directory);
 	const modeCfg = config.turbo?.epic?.mode;
 	const cochangeCfg = config.turbo?.epic?.cochange;
-	const activationThreshold = modeCfg?.activation_threshold ?? 0.3;
+	const calibrationCfg = config.turbo?.epic?.calibration;
+	const staticActivationThreshold = modeCfg?.activation_threshold ?? 0.3;
 	const minCommitsForSignal = modeCfg?.min_commits_for_signal ?? 20;
 	const cochangeNpmiThreshold = cochangeCfg?.threshold ?? 0.6;
 	const cochangeMinCoChanges = cochangeCfg?.min_co_changes ?? 5;
+	const calibrationEnabled = calibrationCfg?.enabled !== false;
+
+	// --- Capability D: roll calibration forward from any divergence records
+	// observed since the last `epic_run_phase` call. The engine is pure; the
+	// only side effect is the calibration-state write at the end. Failure is
+	// non-fatal — calibration is opportunistic, not load-bearing for safety.
+	let effectiveThreshold = staticActivationThreshold;
+	let extraHotModules: string[] = [];
+	if (calibrationEnabled) {
+		try {
+			const currentCalibration = _internals.loadCalibrationState(directory);
+			if (currentCalibration !== null) {
+				// Full read: the calibration engine slices by record COUNT
+				// (`processedRecords`), so a tail-truncated view would
+				// silently miss records once the file exceeds the default
+				// 16 MiB cap. Trade memory pressure for correctness here;
+				// rotation/byte-offset tracking is a future enhancement.
+				const history = _internals.readDivergenceHistory(directory, {
+					maxBytes: Number.POSITIVE_INFINITY,
+				});
+				const newRecords = history.slice(currentCalibration.processedRecords);
+				if (newRecords.length > 0) {
+					const updated = _internals.applyCalibration(
+						currentCalibration,
+						newRecords,
+						{
+							staticThreshold: staticActivationThreshold,
+							floorThreshold: calibrationCfg?.floor_threshold,
+							tightenStep: calibrationCfg?.tighten_step,
+							loosenStep: calibrationCfg?.loosen_step,
+							loosenWindow: calibrationCfg?.loosen_window,
+						},
+					);
+					let savedSuccessfully = false;
+					try {
+						_internals.saveCalibrationState(directory, updated);
+						savedSuccessfully = true;
+					} catch (err) {
+						// Critical: if persistence failed we MUST NOT use the
+						// in-memory `updated` for this run either. The next
+						// `epic_run_phase` would re-read the OLD `processedRecords`
+						// from disk and re-apply the same divergence records,
+						// causing silent threshold drift across repeated failures
+						// (adversarial review H1). Sacrifice one run of new signal
+						// to preserve correctness — fall back to the durable state.
+						logger.warn(
+							`[epic_run_phase] calibration persist failed; ignoring this run's calibration delta to avoid drift on next run: ${err instanceof Error ? err.message : String(err)}`,
+						);
+					}
+					const sourceForThisRun = savedSuccessfully
+						? updated
+						: currentCalibration;
+					effectiveThreshold = _internals.effectiveActivationThreshold(
+						staticActivationThreshold,
+						sourceForThisRun,
+					);
+					extraHotModules = _internals.effectiveHotModules(
+						[],
+						sourceForThisRun,
+					);
+				} else {
+					effectiveThreshold = _internals.effectiveActivationThreshold(
+						staticActivationThreshold,
+						currentCalibration,
+					);
+					extraHotModules = _internals.effectiveHotModules(
+						[],
+						currentCalibration,
+					);
+				}
+			}
+		} catch (err) {
+			logger.warn(
+				`[epic_run_phase] calibration step failed, falling back to static knobs: ${err instanceof Error ? err.message : String(err)}`,
+			);
+			effectiveThreshold = staticActivationThreshold;
+			extraHotModules = [];
+		}
+	}
 
 	// Q1: per-plan activation — evaluate over the whole plan's task graph,
 	// not just `phase`. The `phase` arg is what we then dispatch into Lean
@@ -137,10 +233,11 @@ export async function executeEpicRunPhase(
 		pairs,
 		commitsObserved,
 		{
-			activationThreshold,
+			activationThreshold: effectiveThreshold,
 			minCommitsForSignal,
 			cochangeNpmiThreshold,
 			cochangeMinCoChanges,
+			extraHotModules,
 		},
 	);
 

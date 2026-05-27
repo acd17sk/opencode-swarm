@@ -587,6 +587,50 @@ You can also enable Epic Mode together with Lean Turbo via the unified turbo sub
 
 After every `epic_run_phase` invocation, one JSON line is appended to `.swarm/evidence/epic-promotions.jsonl` with the timestamp, sessionID, phase, decision, `p`, gate rationale, and blocking reasons. This is the audit trail — never overwritten, only appended; tolerates partial-write of the trailing line.
 
+### Capability D — Outcome-based self-calibration
+
+Capability D closes the loop on Epic Mode's static knobs. After every task is marked `completed`, the architect calls a new tool `epic_record_divergence(directory, taskId, sessionID)` (the `EPIC_MODE_BANNER` auto-instructs it to). The tool compares the task's declared scope (`.swarm/scopes/scope-{taskId}.json`) against the files the coder actually modified (`session.modifiedFilesThisCoderTask`) and appends one line to `.swarm/epic/divergence.jsonl`.
+
+On every subsequent `epic_run_phase` call, the calibration engine consumes any new divergence records and updates two persisted knobs at `.swarm/epic/calibration.json`:
+
+| Knob | Behaviour |
+|---|---|
+| `activationThresholdOverride` | Tightens (toward zero) by `tighten_step` for every divergent task, capped at `floor_threshold`. Loosens (toward the static `activation_threshold`) by `loosen_step` only after `loosen_window` consecutive clean tasks; the counter resets on any divergent task and on every loosening event. |
+| `hotModuleAdditions` | Files written without being declared get added permanently. **Monotonically grows** — never auto-shrinks. Loosening relaxes only the threshold; the hot-module list requires manual intervention to shrink. |
+
+The calibration values plug into the same three gates Capability C already runs — they just supply tighter values when divergence has been observed. The static config is always the absolute ceiling: calibration can never relax past it.
+
+#### `turbo.epic.calibration.*` knobs
+
+| Key | Default | Effect |
+|---|---|---|
+| `turbo.epic.calibration.enabled` | `true` | Master gate for the calibration loop. With this off, the static `mode.activation_threshold` is always used. |
+| `turbo.epic.calibration.floor_threshold` | `0.05` | Calibration never tightens the threshold below this. Below ~0.05 the gate becomes too strict to ever promote. |
+| `turbo.epic.calibration.tighten_step` | `0.02` | Per-divergent-task tightening step. |
+| `turbo.epic.calibration.loosen_step` | `0.01` | Per-loosening-event step (added toward the static config value). |
+| `turbo.epic.calibration.loosen_window` | `10` | Consecutive clean tasks required before the engine loosens by `loosen_step`. |
+
+#### Divergence-record format
+
+Each line of `.swarm/epic/divergence.jsonl`:
+
+```json
+{
+  "timestamp": "2026-05-26T18:42:11.045Z",
+  "sessionID": "sess-abc",
+  "taskId": "T-1.2",
+  "phaseNumber": 1,
+  "declaredScope": ["src/a.ts"],
+  "actualFiles": ["src/a.ts", "src/global.ts"],
+  "undeclared": ["src/global.ts"],
+  "unused": [],
+  "divergenceRatio": 0.5,
+  "isClean": false
+}
+```
+
+Read-tolerant of partial-write of the trailing line. Best-effort writer — failures log but never block task completion.
+
 ---
 
 ## FAQ

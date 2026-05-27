@@ -29,7 +29,7 @@
  */
 
 import type { CoChangeEntry } from '../../tools/co-change-analyzer.js';
-import { isGlobalFile, isProtectedPath } from '../lean/conflicts.js';
+import { isGlobalFile, isProtectedPath, normalizePath } from '../lean/conflicts.js';
 import type { CouplingTask } from './coupling-report.js';
 import { computeCouplingReport } from './coupling-report.js';
 
@@ -43,6 +43,16 @@ export interface EpicActivationOptions {
 	cochangeNpmiThreshold: number;
 	/** Minimum raw co-change count for the conflict signal. */
 	cochangeMinCoChanges: number;
+	/**
+	 * Capability D (calibration) additions to the hot-module list. The static
+	 * Lean Turbo predicates (`isGlobalFile` / `isProtectedPath`) always apply;
+	 * these are normalised paths the calibration loop has promoted after
+	 * observing divergent writes against the static set. Optional — falsy or
+	 * empty means "no calibration overrides". Path matching is exact (post-
+	 * `normalizePath`); callers compute that via `effectiveHotModules` in
+	 * `./calibration-engine.ts`.
+	 */
+	extraHotModules?: readonly string[];
 }
 
 /** Each gate's pass/fail outcome plus the evidence behind it. */
@@ -109,11 +119,19 @@ export function decideEpicActivation(
 	const greenfieldPassed = commitsObserved >= options.minCommitsForSignal;
 
 	// --- Gate 2: hot-module check. Reuses Lean Turbo's exported predicates
-	// (no list duplication).
+	// (no list duplication). Calibration-promoted modules from
+	// `options.extraHotModules` extend the check with normalised paths.
+	const extraSet = new Set(
+		(options.extraHotModules ?? []).map((f) => normalizePath(f)),
+	);
 	const touchedHotModules = new Set<string>();
 	for (const task of tasks) {
 		for (const file of task.scope) {
-			if (isGlobalFile(file) || isProtectedPath(file)) {
+			if (
+				isGlobalFile(file) ||
+				isProtectedPath(file) ||
+				extraSet.has(normalizePath(file))
+			) {
 				touchedHotModules.add(file);
 			}
 		}
