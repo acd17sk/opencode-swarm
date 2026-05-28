@@ -34,16 +34,33 @@ export interface GetCoChangePairsOptions {
     maxCommitsToAnalyze?: number;
 }
 /**
- * Return the full co-change matrix for the given directory at the current
- * git HEAD. The returned entries are unfiltered: every pair the analyzer
- * recorded is present, with NPMI / lift / counts / static-edge fields. The
- * caller (Epic conflict module) applies the configured threshold.
+ * Output of `getCoChangeData`. Carries the same `pairs` returned by
+ * `getCoChangePairs`, plus the commit count the analyzer actually observed
+ * — which Capability C's greenfield gate needs to decide whether the
+ * signal is dense enough to trust.
+ */
+export interface CoChangeData {
+    pairs: CoChangeEntry[];
+    commitsObserved: number;
+}
+/**
+ * Return the full co-change data for the given directory at the current
+ * git HEAD. The returned `pairs` are unfiltered (every pair the analyzer
+ * recorded, with NPMI / lift / counts / static-edge fields); `commitsObserved`
+ * is the number of distinct commits the analyzer scanned. Capability A
+ * applies the NPMI threshold to `pairs`; Capability C's greenfield gate
+ * inspects `commitsObserved`.
  *
- * Returns `[]` when:
+ * Returns `{ pairs: [], commitsObserved: 0 }` when:
  *  - Directory is not a git repo, or `git` is unavailable / times out.
  *  - The analyzer's commit map is empty (greenfield repo).
- * Both cases are signal-absent, which the conflict module treats as
- * "fall back to path-only" per §15.6 of the design notes.
+ * Both cases are signal-absent.
+ */
+export declare function getCoChangeData(directory: string, options?: GetCoChangePairsOptions): Promise<CoChangeData>;
+/**
+ * Back-compat wrapper kept for the M2 path (`/swarm coupling` only needs
+ * `pairs`). Capability C uses `getCoChangeData` directly for the
+ * greenfield gate.
  */
 export declare function getCoChangePairs(directory: string, options?: GetCoChangePairsOptions): Promise<CoChangeEntry[]>;
 /** Test-only: drop all cache entries. */
