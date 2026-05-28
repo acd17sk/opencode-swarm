@@ -77,6 +77,24 @@ describe('EPIC_MODE_BANNER content', () => {
 	test('lists /swarm epic calibration as a visibility command', () => {
 		expect(EPIC_MODE_BANNER).toContain('/swarm epic calibration');
 	});
+
+	test('mandates declaring scope for every pending task BEFORE epic_run_phase (Step 0)', () => {
+		// Discovered live (fair-clinical-bench session): without upfront
+		// scope declaration, Lean Turbo's lane planner has no graph to
+		// dispatch and returns empty lanes/serializedTasks even on a
+		// promote verdict — the architect then falls back to serial
+		// per-task delegation and Epic's parallelization is invisible.
+		// Step 0 closes that gap.
+		expect(EPIC_MODE_BANNER).toContain(
+			'DECLARE SCOPE for every pending task',
+		);
+		expect(EPIC_MODE_BANNER).toContain('BEFORE calling `epic_run_phase`');
+		expect(EPIC_MODE_BANNER).toContain('lane planner reads task scopes');
+		// Must explicitly forbid the broken declare-as-you-go pattern.
+		expect(EPIC_MODE_BANNER).toContain(
+			'Do NOT declare scope task-by-task during execution',
+		);
+	});
 });
 
 describe('hasActiveEpicMode — per-session lookup', () => {

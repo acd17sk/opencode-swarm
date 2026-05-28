@@ -342,8 +342,11 @@ Do NOT skip phase reviewer/critic when configured. Degraded and serialized tasks
 
 Mandatory behavioral changes:
 
+**0. DECLARE SCOPE for every pending task in the phase BEFORE calling \`epic_run_phase\`.**
+Lean Turbo's lane planner reads task scopes (from \`.swarm/scopes/scope-{taskId}.json\` or from \`files_touched\` in \`plan.json\`) to compute parallel lanes. When scopes are empty, the planner has no graph to dispatch and returns empty lanes/serializedTasks — which means the promote verdict comes back with nothing actually parallelized. Before invoking \`epic_run_phase(phase=N)\`, call \`declare_scope\` once for every pending task in phase N, passing the exact file paths each task will touch (as listed in the architecture / plan). This is what unlocks Lean Turbo's lane planning. Do NOT declare scope task-by-task during execution — by then the planner has already run.
+
 **1. Call \`epic_run_phase\` BEFORE any phase work — not just full-phase batch execution.**
-Before delegating the FIRST coder task of any phase (including mid-phase remaining tasks after a session resume), call \`epic_run_phase(directory, phase=N, sessionID)\` once for that phase. The tool computes the plan-wide coupling coefficient \`p\` and gates on three checks (p-threshold, hot-module, greenfield), then either invokes Lean Turbo for parallel execution (promote) or returns a structured "demoted" verdict (any gate failed). Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on — Epic decides whether Lean Turbo runs at all.
+After all pending-task scopes for the phase are declared (step 0), call \`epic_run_phase(directory, phase=N, sessionID)\` once for that phase. The tool computes the plan-wide coupling coefficient \`p\` and gates on three checks (p-threshold, hot-module, greenfield), then either invokes Lean Turbo for parallel execution (promote) or returns a structured "demoted" verdict (any gate failed). Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on — Epic decides whether Lean Turbo runs at all.
 
 **2. SURFACE the verdict to the user BEFORE proceeding.**
 After every \`epic_run_phase\` call, IMMEDIATELY show the user a one-line summary:
