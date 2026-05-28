@@ -244,8 +244,8 @@ export declare const COMMAND_REGISTRY: {
     readonly epic: {
         readonly handler: (ctx: CommandContext) => Promise<string>;
         readonly description: "Toggle Epic Mode (autonomous coupling-aware parallel activation) and inspect its decisions";
-        readonly details: "Epic Mode is an additive overlay that composes Lean Turbo. When on, the architect should call epic_run_phase(phase) instead of lean_turbo_run_phase(phase); epic_run_phase computes the plan-wide coupling coefficient p and gates parallel promotion on p + a hot-module check + a greenfield rule. Subcommands: on, off, status, decide (read-only what-if), last (most recent decision from durable evidence log). Bare /swarm epic shows status. Decision rationale persists to .swarm/evidence/epic-promotions.jsonl after every epic_run_phase invocation.";
-        readonly args: "on | off | status | decide | last";
+        readonly details: "Epic Mode is an additive overlay that composes Lean Turbo. When on, the architect should call epic_run_phase(phase) instead of lean_turbo_run_phase(phase); epic_run_phase computes the plan-wide coupling coefficient p and gates parallel promotion on p + a hot-module check + a greenfield rule. Subcommands: on, off, status, decide (read-only what-if), last (most recent decision from durable evidence log), calibration (Capability D state: learned threshold + hot modules + recent divergent tasks). Bare /swarm epic shows status. Decision rationale persists to .swarm/evidence/epic-promotions.jsonl after every epic_run_phase invocation.";
+        readonly args: "on | off | status | decide | last | calibration";
         readonly category: "diagnostics";
     };
     readonly 'dark-matter': {

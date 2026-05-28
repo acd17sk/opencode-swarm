@@ -311,3 +311,97 @@ describe('handleEpicCommand — last (most recent decision from evidence)', () =
 		expect(out).toContain('disk fell off');
 	});
 });
+
+describe('handleEpicCommand — calibration (Capability D state)', () => {
+	test('returns "no state yet" + static threshold when state is null (clean repo)', async () => {
+		_internals.loadCalibrationState = (() => null) as never;
+		_internals.isCalibrationStateUnreadable = (() => false) as never;
+		_internals.readDivergenceHistory = (() => []) as never;
+		const out = await handleEpicCommand('/fake', ['calibration'], 'sess-1');
+		expect(out).toContain('Epic Mode — Calibration');
+		expect(out).toContain('No calibration state yet');
+		// Static threshold from default config (0.3) must be surfaced.
+		expect(out).toContain('0.300');
+	});
+
+	test('returns fail-closed message when calibration state is unreadable', async () => {
+		_internals.isCalibrationStateUnreadable = (() => true) as never;
+		const out = await handleEpicCommand('/fake', ['calibration'], 'sess-1');
+		expect(out).toContain('unreadable (fail-closed)');
+		expect(out).toContain('static config defaults');
+	});
+
+	test('renders effective threshold + tightening delta when override is set', async () => {
+		_internals.isCalibrationStateUnreadable = (() => false) as never;
+		_internals.loadCalibrationState = (() => ({
+			version: 1 as const,
+			updatedAt: '2026-05-28T10:00:00Z',
+			activationThresholdOverride: 0.22,
+			hotModuleAdditions: ['src/global.ts', 'src/init.ts'],
+			consecutiveCleanCount: 3,
+			lastCalibrationAt: '2026-05-28T09:45:00Z',
+			processedRecords: 17,
+		})) as never;
+		_internals.readDivergenceHistory = (() => [
+			{
+				timestamp: '2026-05-28T09:00:00Z',
+				sessionID: 's',
+				taskId: 'T-2.4',
+				declaredScope: ['src/foo.ts'],
+				actualFiles: ['src/foo.ts', 'src/global.ts'],
+				undeclared: ['src/global.ts'],
+				unused: [],
+				divergenceRatio: 0.5,
+				isClean: false,
+			},
+		]) as never;
+		const out = await handleEpicCommand('/fake', ['calibration'], 'sess-1');
+		// Static and effective both shown with delta.
+		expect(out).toContain('Static threshold (config): 0.300');
+		expect(out).toContain('Effective threshold (learned)**: 0.220');
+		expect(out).toContain('tightened by 0.080');
+		// Counter + window from defaults.
+		expect(out).toContain('Consecutive clean tasks: 3 / 10');
+		// Hot module entries listed.
+		expect(out).toContain('src/global.ts');
+		expect(out).toContain('src/init.ts');
+		// Recent divergent rendered with undeclared sample.
+		expect(out).toContain('T-2.4');
+		expect(out).toContain('ratio=0.50');
+	});
+
+	test('says "using static" when no override is set', async () => {
+		_internals.isCalibrationStateUnreadable = (() => false) as never;
+		_internals.loadCalibrationState = (() => ({
+			version: 1 as const,
+			updatedAt: '2026-05-28T10:00:00Z',
+			hotModuleAdditions: [],
+			consecutiveCleanCount: 0,
+			processedRecords: 0,
+		})) as never;
+		_internals.readDivergenceHistory = (() => []) as never;
+		const out = await handleEpicCommand('/fake', ['calibration'], 'sess-1');
+		expect(out).toContain('using static — no calibration override');
+		expect(out).toContain('hasn\'t promoted any modules');
+		expect(out).toContain('None recent');
+	});
+
+	test('truncates long hot-module list at 10 entries with summary line', async () => {
+		_internals.isCalibrationStateUnreadable = (() => false) as never;
+		const lotsOfModules = Array.from({ length: 14 }, (_, i) => `src/m${i}.ts`);
+		_internals.loadCalibrationState = (() => ({
+			version: 1 as const,
+			updatedAt: '2026-05-28T10:00:00Z',
+			hotModuleAdditions: lotsOfModules,
+			consecutiveCleanCount: 0,
+			processedRecords: 20,
+		})) as never;
+		_internals.readDivergenceHistory = (() => []) as never;
+		const out = await handleEpicCommand('/fake', ['calibration'], 'sess-1');
+		expect(out).toContain('src/m0.ts');
+		expect(out).toContain('src/m9.ts');
+		expect(out).toContain('+4 more');
+		// m10..m13 should not appear individually.
+		expect(out).not.toContain('src/m12.ts');
+	});
+});

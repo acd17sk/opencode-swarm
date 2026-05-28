@@ -19,7 +19,9 @@ import { loadPluginConfigWithMeta } from '../config/index.js';
 import { loadPlanJsonOnly } from '../plan/manager.js';
 import { getAgentSession } from '../state.js';
 import { decideEpicActivation } from '../turbo/epic/activation.js';
+import { isCalibrationStateUnreadable, loadCalibrationState } from '../turbo/epic/calibration.js';
 import { getCoChangeData } from '../turbo/epic/cochange-source.js';
+import { readDivergenceHistory } from '../turbo/epic/divergence-recorder.js';
 import { readPromotionEvidence } from '../turbo/epic/promotion-evidence.js';
 import { disableEpicMode, enableEpicMode, isEpicModeActive, isStateUnreadable, loadEpicSessionState } from '../turbo/epic/state.js';
 import { readTaskScopes } from '../turbo/lean/conflicts.js';
@@ -40,5 +42,8 @@ export declare const _internals: {
     disableEpicMode: typeof disableEpicMode;
     readTaskScopes: typeof readTaskScopes;
     readPromotionEvidence: typeof readPromotionEvidence;
+    loadCalibrationState: typeof loadCalibrationState;
+    isCalibrationStateUnreadable: typeof isCalibrationStateUnreadable;
+    readDivergenceHistory: typeof readDivergenceHistory;
 };
 export declare function handleEpicCommand(directory: string, args: string[], sessionID: string): Promise<string>;

@@ -23,8 +23,13 @@ import {
 	decideEpicActivation,
 	type EpicActivationVerdict,
 } from '../turbo/epic/activation.js';
+import {
+	isCalibrationStateUnreadable,
+	loadCalibrationState,
+} from '../turbo/epic/calibration.js';
 import { getCoChangeData } from '../turbo/epic/cochange-source.js';
 import type { CouplingTask } from '../turbo/epic/coupling-report.js';
+import { readDivergenceHistory } from '../turbo/epic/divergence-recorder.js';
 import { readPromotionEvidence } from '../turbo/epic/promotion-evidence.js';
 import {
 	disableEpicMode,
@@ -52,6 +57,9 @@ export const _internals = {
 	disableEpicMode,
 	readTaskScopes,
 	readPromotionEvidence,
+	loadCalibrationState,
+	isCalibrationStateUnreadable,
+	readDivergenceHistory,
 };
 
 export async function handleEpicCommand(
@@ -76,6 +84,8 @@ export async function handleEpicCommand(
 			return renderDecide(directory);
 		case 'last':
 			return renderLast(directory);
+		case 'calibration':
+			return renderCalibration(directory);
 		case 'on':
 			return enableAndAck(directory, sessionID, session);
 		case 'off':
@@ -90,7 +100,7 @@ export async function handleEpicCommand(
 			// don't change anything. Explicit `on/off` are the mutators.
 			return renderStatus(directory, sessionID);
 		default:
-			return `Unknown subcommand '${arg0}'.\n\nUsage:\n  /swarm epic on | off | status | decide | last\n  /swarm epic         (shows status)`;
+			return `Unknown subcommand '${arg0}'.\n\nUsage:\n  /swarm epic on | off | status | decide | last | calibration\n  /swarm epic         (shows status)`;
 	}
 }
 
@@ -221,6 +231,126 @@ function renderLast(directory: string): string {
 			`(History: ${records.length} decisions total in this directory's epic-promotions.jsonl)`,
 		);
 	}
+	return lines.join('\n');
+}
+
+function renderCalibration(directory: string): string {
+	// `/swarm epic calibration` — surfaces the full M4 self-calibration
+	// state: the learned threshold override (vs. the static config), the
+	// monotonically-growing hot-module additions, the consecutive-clean
+	// counter, the count of processed divergence records, and a tail of
+	// the divergent tasks that drove the threshold to where it is.
+	//
+	// This is the user's pull-on-demand visibility into the feedback loop:
+	//  - WHY the activation threshold is below static (which divergent
+	//    tasks tightened it)
+	//  - WHICH modules have been auto-promoted to the hot-module list
+	//    (one-way ratchet — never auto-shrinks)
+	//  - HOW many clean tasks are needed before the next loosening (counter
+	//    + window from config)
+	if (_internals.isCalibrationStateUnreadable(directory)) {
+		return [
+			'## Epic Mode — Calibration',
+			'',
+			'⚠️ Calibration state file is unreadable (fail-closed).',
+			'',
+			'`.swarm/epic/calibration.json` exists but failed shape validation. The calibration engine is using the static config defaults for this directory until the file is repaired or removed.',
+		].join('\n');
+	}
+
+	let state;
+	try {
+		state = _internals.loadCalibrationState(directory);
+	} catch (err) {
+		return `Error reading calibration state: ${err instanceof Error ? err.message : String(err)}`;
+	}
+
+	// Static config for the comparison (so the user can see "current is
+	// tighter than static by N points").
+	const { config } = _internals.loadPluginConfigWithMeta(directory);
+	const staticThreshold = config.turbo?.epic?.mode?.activation_threshold ?? 0.3;
+	const calibrationCfg = config.turbo?.epic?.calibration;
+	const loosenWindow = calibrationCfg?.loosen_window ?? 10;
+
+	if (!state) {
+		return [
+			'## Epic Mode — Calibration',
+			'',
+			'No calibration state yet at `.swarm/epic/calibration.json`.',
+			'',
+			`Static activation threshold: ${staticThreshold.toFixed(3)} (from \`turbo.epic.mode.activation_threshold\`)`,
+			'',
+			'The calibration engine writes state on the first `epic_run_phase` call that consumes a divergence record. Until then, the static threshold and an empty hot-module list are in effect.',
+		].join('\n');
+	}
+
+	const effectiveThreshold =
+		state.activationThresholdOverride ?? staticThreshold;
+	const delta = staticThreshold - effectiveThreshold;
+
+	const lines: string[] = ['## Epic Mode — Calibration', ''];
+	lines.push('### Knobs');
+	lines.push(`- Static threshold (config): ${staticThreshold.toFixed(3)}`);
+	if (state.activationThresholdOverride !== undefined) {
+		lines.push(
+			`- **Effective threshold (learned)**: ${effectiveThreshold.toFixed(3)} — tightened by ${delta.toFixed(3)} from static`,
+		);
+	} else {
+		lines.push(
+			`- **Effective threshold**: ${effectiveThreshold.toFixed(3)} (using static — no calibration override)`,
+		);
+	}
+	lines.push(
+		`- Consecutive clean tasks: ${state.consecutiveCleanCount} / ${loosenWindow} (next loosening at ${loosenWindow})`,
+	);
+	lines.push(`- Processed divergence records: ${state.processedRecords}`);
+	if (state.lastCalibrationAt) {
+		lines.push(`- Last calibration at: ${state.lastCalibrationAt}`);
+	}
+	lines.push('');
+
+	lines.push('### Hot-module additions (learned)');
+	if (state.hotModuleAdditions.length === 0) {
+		lines.push('_None._ The calibration loop hasn\'t promoted any modules to the hot list yet.');
+	} else {
+		const sample = state.hotModuleAdditions.slice(0, 10);
+		for (const m of sample) lines.push(`- ${m}`);
+		if (state.hotModuleAdditions.length > 10) {
+			lines.push(`- _… +${state.hotModuleAdditions.length - 10} more_`);
+		}
+		lines.push('');
+		lines.push(
+			'_(Monotonically grows; never auto-shrinks. To remove an entry, edit `.swarm/epic/calibration.json` by hand and restart the session.)_',
+		);
+	}
+	lines.push('');
+
+	// Divergent-tail context — WHY the threshold tightened. Read at most
+	// the tail of the divergence log so this is fast even on long-running
+	// projects.
+	let recentDivergent: ReturnType<typeof _internals.readDivergenceHistory> = [];
+	try {
+		const all = _internals.readDivergenceHistory(directory, { limit: 50 });
+		recentDivergent = all.filter((r) => !r.isClean).slice(-5);
+	} catch {
+		// best-effort
+	}
+
+	lines.push('### Recent divergent tasks (tightened the threshold)');
+	if (recentDivergent.length === 0) {
+		lines.push(
+			'_None recent._ Either no divergence has been recorded, or recent tasks have all been clean.',
+		);
+	} else {
+		for (const r of recentDivergent) {
+			const sample = r.undeclared.slice(0, 3).join(', ');
+			const more = r.undeclared.length > 3 ? `, +${r.undeclared.length - 3} more` : '';
+			lines.push(
+				`- ${r.taskId} (${r.timestamp.slice(0, 19)}Z, ratio=${r.divergenceRatio.toFixed(2)}) — undeclared: ${sample}${more}`,
+			);
+		}
+	}
+
 	return lines.join('\n');
 }
 

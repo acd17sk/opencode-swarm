@@ -64,6 +64,19 @@ describe('EPIC_MODE_BANNER content', () => {
 	test('lists /swarm epic last as a visibility command', () => {
 		expect(EPIC_MODE_BANNER).toContain('/swarm epic last');
 	});
+
+	test('mandates surfacing divergence to the user when a task wrote outside scope', () => {
+		// Without this, per-task divergence is silent — the user only sees
+		// the activation decision, not the scope-discipline signal that
+		// drives the next threshold tightening.
+		expect(EPIC_MODE_BANNER).toContain('SURFACE divergence');
+		expect(EPIC_MODE_BANNER).toContain('summary.isClean: false');
+		expect(EPIC_MODE_BANNER).toContain('Divergence: task');
+	});
+
+	test('lists /swarm epic calibration as a visibility command', () => {
+		expect(EPIC_MODE_BANNER).toContain('/swarm epic calibration');
+	});
 });
 
 describe('hasActiveEpicMode — per-session lookup', () => {

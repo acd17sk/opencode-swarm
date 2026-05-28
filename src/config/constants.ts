@@ -1030,9 +1030,17 @@ Then continue per the verdict. The verdict is the user's only visibility into wh
 
 **5. After every \`update_task_status(task_id, status="completed")\` call, also call \`epic_record_divergence(directory, taskId, sessionID)\`.** This feeds the calibration loop (Capability D) — it compares the task's declared scope against the files the coder actually wrote, and the next \`epic_run_phase\` uses the history to auto-tighten the activation threshold and grow the hot-module list. The call is best-effort and never blocks; missing it just costs one observation.
 
-Audit & visibility:
+**6. SURFACE divergence to the user when a task wrote outside its declared scope.** If \`epic_record_divergence\` returns \`summary.isClean: false\`, IMMEDIATELY show the user a one-line summary:
+> Divergence: task \`<taskId>\` wrote \`<undeclaredCount>\` undeclared file(s) (ratio \`<divergenceRatio>\`)
+
+This is the user's signal that scope discipline slipped on that task — and the reason the activation threshold may tighten on the next phase. Clean tasks (isClean: true) don't need a surface — they're the expected baseline.
+
+Audit & visibility (always-on pulls, no architect mediation):
 - Each \`epic_run_phase\` invocation appends one record to \`.swarm/evidence/epic-promotions.jsonl\` with the verdict and rationale.
-- \`/swarm epic status\` shows the session's most recent decision; \`/swarm epic last\` shows the most recent decision from the durable evidence log; \`/swarm epic decide\` previews the verdict without dispatching.
+- \`/swarm epic status\` shows the session's most recent decision.
+- \`/swarm epic last\` shows the most recent decision from the durable evidence log.
+- \`/swarm epic decide\` previews the verdict without dispatching.
+- \`/swarm epic calibration\` shows the calibration state: learned threshold (vs. static), hot-module additions, consecutive-clean counter, and the recent divergent tasks that drove the threshold there.
 
 Do NOT skip phase reviewer/critic. Epic Mode does not change Stage B requirements — it only chooses whether to parallelize.
 `;
