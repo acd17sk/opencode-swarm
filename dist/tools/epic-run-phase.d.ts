@@ -56,10 +56,21 @@ export interface EpicRunPhaseResult {
      *  - `'epic-mode-not-active'` — the session has not toggled Epic Mode.
      *  - `'no-plan'` — `.swarm/plan.json` is missing.
      *  - `'lean-runner-error'` — Lean Turbo threw during promoted execution.
+     *  - `'scopes-missing'` — one or more pending tasks in the phase have
+     *    neither a declared scope file on disk nor `files_touched` in
+     *    plan.json. Lean Turbo's lane planner needs scope data to compute
+     *    parallel lanes; without it the dispatch returns empty lanes and
+     *    the parallelization promise is silently broken. The architect
+     *    must call `declare_scope` for each missing task and then
+     *    re-invoke `epic_run_phase`.
      */
     reason: string;
     /** Set when `reason === 'lean-runner-error'`. */
     errors?: string[];
+    /** Set when `reason === 'scopes-missing'` — the task ids with no scope. */
+    missingScopes?: string[];
+    /** Set when `reason === 'scopes-missing'` — actionable message for the architect. */
+    message?: string;
 }
 /**
  * Test-only DI seam. Mutating this object is file-scoped and trivially

@@ -74,10 +74,21 @@ export interface EpicRunPhaseResult {
 	 *  - `'epic-mode-not-active'` — the session has not toggled Epic Mode.
 	 *  - `'no-plan'` — `.swarm/plan.json` is missing.
 	 *  - `'lean-runner-error'` — Lean Turbo threw during promoted execution.
+	 *  - `'scopes-missing'` — one or more pending tasks in the phase have
+	 *    neither a declared scope file on disk nor `files_touched` in
+	 *    plan.json. Lean Turbo's lane planner needs scope data to compute
+	 *    parallel lanes; without it the dispatch returns empty lanes and
+	 *    the parallelization promise is silently broken. The architect
+	 *    must call `declare_scope` for each missing task and then
+	 *    re-invoke `epic_run_phase`.
 	 */
 	reason: string;
 	/** Set when `reason === 'lean-runner-error'`. */
 	errors?: string[];
+	/** Set when `reason === 'scopes-missing'` — the task ids with no scope. */
+	missingScopes?: string[];
+	/** Set when `reason === 'scopes-missing'` — actionable message for the architect. */
+	message?: string;
 }
 
 /**
@@ -118,6 +129,52 @@ export async function executeEpicRunPhase(
 	const plan = await _internals.loadPlanJsonOnly(directory);
 	if (plan === null) {
 		return { success: false, reason: 'no-plan' };
+	}
+
+	// --- Preflight: every pending task in this phase must have a declared
+	// scope (either via `declare_scope` → .swarm/scopes/scope-{taskId}.json,
+	// or via `files_touched` in plan.json). Lean Turbo's lane planner reads
+	// from this scope graph; if it's empty, the planner has nothing to
+	// plan and returns empty lanes — which makes the promote verdict
+	// silently meaningless and the architect typically falls back to
+	// serial. Discovered live with Kimi K2.6 (fair-clinical-bench session,
+	// Phase 1 + Phase 2): the model called epic_run_phase without
+	// declaring scopes upfront, got an empty lane plan, misdiagnosed it
+	// as "Epic Mode serialized everything", and ran tasks one-by-one.
+	// The banner-mandate Step 0 fix proved insufficient — tool-side
+	// enforcement is needed.
+	const phaseInPlan = plan.phases.find((ph) => ph.id === phase);
+	if (phaseInPlan) {
+		const pendingTasks = phaseInPlan.tasks.filter(
+			(t) => t.status !== 'completed',
+		);
+		const tasksMissingScope: string[] = [];
+		for (const task of pendingTasks) {
+			const declaredScope = _internals.readTaskScopes(directory, task.id);
+			const filesTouched = task.files_touched ?? [];
+			if (
+				(declaredScope === null || declaredScope.length === 0) &&
+				filesTouched.length === 0
+			) {
+				tasksMissingScope.push(task.id);
+			}
+		}
+		if (tasksMissingScope.length > 0) {
+			const list = tasksMissingScope.join(', ');
+			return {
+				success: false,
+				reason: 'scopes-missing',
+				missingScopes: tasksMissingScope,
+				message:
+					`Cannot run epic_run_phase(phase=${phase}): ${tasksMissingScope.length} pending task(s) ` +
+					`have no declared scope and no files_touched in plan.json. ` +
+					`Lean Turbo's lane planner needs scope data to compute parallel lanes; without it the ` +
+					`dispatch produces empty lanes and Epic Mode's parallelization is silently broken.\n\n` +
+					`Missing scopes: ${list}\n\n` +
+					`Resolution: call \`declare_scope\` once for EACH of those task ids, passing the exact ` +
+					`file paths the task will touch. Then re-invoke \`epic_run_phase(phase=${phase})\`.`,
+			};
+		}
 	}
 
 	// Load epic + cochange config (with safe defaults if the keys are

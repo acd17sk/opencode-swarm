@@ -656,3 +656,148 @@ describe('epic_run_phase tool — ctx.sessionID precedence (Fix B)', () => {
 		expect(observedSessionID).toBe('from-args');
 	});
 });
+
+describe('executeEpicRunPhase — scope-missing preflight (live-test escalation)', () => {
+	test('refuses to dispatch when pending tasks have no declared scope AND no files_touched', async () => {
+		// Plan with two pending tasks neither of which has scope data.
+		// readTaskScopes returns null (no scope file) and files_touched is empty.
+		stub.plan = {
+			phases: [
+				{
+					id: 1,
+					name: 'P1',
+					tasks: [
+						{ id: '1.1', description: 'a', status: 'pending', files_touched: [] },
+						{ id: '1.2', description: 'b', status: 'pending', files_touched: [] },
+					],
+				},
+			],
+		};
+		_internals.readTaskScopes = (() => null) as never;
+
+		const result = await executeEpicRunPhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		expect(result.success).toBe(false);
+		expect(result.reason).toBe('scopes-missing');
+		expect(result.missingScopes).toEqual(['1.1', '1.2']);
+		expect(result.message).toContain('declare_scope');
+		expect(result.message).toContain('1.1, 1.2');
+		expect(stub.evidenceAppends).toBe(0); // no decision happened
+	});
+
+	test('proceeds when scope file exists on disk (architect called declare_scope)', async () => {
+		stub.plan = {
+			phases: [
+				{
+					id: 1,
+					name: 'P1',
+					tasks: [
+						{ id: '1.1', description: 'a', status: 'pending', files_touched: [] },
+					],
+				},
+			],
+		};
+		_internals.readTaskScopes = (() => ['src/a.ts']) as never;
+
+		const result = await executeEpicRunPhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		// Reaches the decision and dispatches.
+		expect(result.reason).not.toBe('scopes-missing');
+		expect(stub.evidenceAppends).toBe(1);
+	});
+
+	test('proceeds when plan.files_touched is populated (no declare_scope needed)', async () => {
+		stub.plan = {
+			phases: [
+				{
+					id: 1,
+					name: 'P1',
+					tasks: [
+						{
+							id: '1.1',
+							description: 'a',
+							status: 'pending',
+							files_touched: ['src/a.ts'],
+						},
+					],
+				},
+			],
+		};
+		_internals.readTaskScopes = (() => null) as never;
+
+		const result = await executeEpicRunPhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		expect(result.reason).not.toBe('scopes-missing');
+		expect(stub.evidenceAppends).toBe(1);
+	});
+
+	test('completed tasks do NOT count toward missing-scope', async () => {
+		stub.plan = {
+			phases: [
+				{
+					id: 1,
+					name: 'P1',
+					tasks: [
+						{ id: '1.1', description: 'a', status: 'completed', files_touched: [] },
+						{
+							id: '1.2',
+							description: 'b',
+							status: 'pending',
+							files_touched: ['src/b.ts'],
+						},
+					],
+				},
+			],
+		};
+		_internals.readTaskScopes = (() => null) as never;
+
+		const result = await executeEpicRunPhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		expect(result.reason).not.toBe('scopes-missing');
+	});
+
+	test('reports only the truly-missing task ids in a mixed-state phase', async () => {
+		stub.plan = {
+			phases: [
+				{
+					id: 2,
+					name: 'P2',
+					tasks: [
+						{ id: '2.1', description: 'a', status: 'pending', files_touched: [] },
+						{ id: '2.2', description: 'b', status: 'pending', files_touched: [] },
+						{
+							id: '2.3',
+							description: 'c',
+							status: 'pending',
+							files_touched: ['src/c.ts'],
+						},
+						{ id: '2.4', description: 'd', status: 'completed', files_touched: [] },
+					],
+				},
+			],
+		};
+		// 2.1 has on-disk scope; 2.2 has nothing; 2.3 has files_touched; 2.4 completed.
+		_internals.readTaskScopes = ((_dir: string, taskId: string) =>
+			taskId === '2.1' ? ['src/a.ts'] : null) as never;
+
+		const result = await executeEpicRunPhase({
+			directory: '/fake',
+			phase: 2,
+			sessionID: 's1',
+		});
+		expect(result.reason).toBe('scopes-missing');
+		expect(result.missingScopes).toEqual(['2.2']);
+	});
+});
