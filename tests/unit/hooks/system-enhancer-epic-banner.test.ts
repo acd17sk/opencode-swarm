@@ -53,6 +53,11 @@ describe('EPIC_MODE_BANNER content', () => {
 			'Do NOT call `lean_turbo_run_phase` directly',
 		);
 		expect(EPIC_MODE_BANNER).toContain('Do not invoke `lean_turbo_run_phase`');
+		// The architect's pretraining may include the deprecated
+		// `epic_run_phase` tool. The banner must explicitly anchor the
+		// model away from inventing a call to it.
+		expect(EPIC_MODE_BANNER).toContain('epic_run_phase');
+		expect(EPIC_MODE_BANNER).toContain('no longer exists');
 	});
 
 	test('explains both promote and demote outcomes', () => {

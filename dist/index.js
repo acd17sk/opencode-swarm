@@ -348,6 +348,8 @@ Do NOT skip phase reviewer/critic when configured. Degraded and serialized tasks
 
 **Epic Mode is the autonomous coupling-aware execution layer.** It owns the parallel-vs-serial decision for every phase. Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on.
 
+> **Note:** if your context or pretraining suggests a tool called \`epic_run_phase\`, that tool no longer exists. The decide-then-dispatch flow below replaces it — \`epic_decide_phase\` decides; the architect dispatches via \`Task\`.
+
 ### The phase-execution flow (mandatory, in order)
 
 For EVERY phase you execute, follow these six steps exactly. There is one path — no alternatives.
@@ -615,7 +617,6 @@ var init_constants = __esm(() => {
       "lean_turbo_acquire_locks",
       "lean_turbo_runner_status",
       "lean_turbo_review",
-      "lean_turbo_run_phase",
       "lean_turbo_status",
       "epic_decide_phase",
       "epic_record_divergence"
@@ -66812,7 +66813,7 @@ function enableAndAck(directory, sessionID, session) {
   return [
     "Epic Mode enabled for this session.",
     "",
-    "The architect will now use `epic_run_phase(phase)` instead of `lean_turbo_run_phase(phase)` for phase execution. Each call computes the plan-wide coupling coefficient `p` and chooses promote/demote per the configured thresholds.",
+    "The architect will now use the transparent decide-then-dispatch path for phase execution: `declare_scope` (×N pending tasks) → `epic_decide_phase` → `lean_turbo_plan_lanes` → `Task` (×lanes, one message) → `epic_record_divergence`. Each phase decision computes the plan-wide coupling coefficient `p` and chooses promote/demote per the configured thresholds. Promoted phases dispatch coders via opencode's `Task` tool so you can click into each parallel coder and watch progress live.",
     "",
     "Run `/swarm epic decide` to see the current verdict without executing."
   ].join(`
@@ -66830,7 +66831,7 @@ function disableAndAck(directory, sessionID, session) {
 function renderStatus(directory, sessionID) {
   const lines = ["## Epic Mode — Status", ""];
   if (_internals26.isStateUnreadable(directory)) {
-    lines.push("**Epic Mode state is unreadable** (`.swarm/epic-state.json` is corrupt or has an unexpected shape). Status cannot be reported until the file is repaired or removed. The fail-closed marker means `epic_run_phase` will refuse to dispatch in this state.");
+    lines.push("**Epic Mode state is unreadable** (`.swarm/epic-state.json` is corrupt or has an unexpected shape). Status cannot be reported until the file is repaired or removed. The fail-closed marker means `epic_decide_phase` will refuse to compute a verdict in this state.");
     return lines.join(`
 `);
   }
@@ -66876,7 +66877,7 @@ function renderLast(directory) {
       "",
       "No decisions recorded yet at `.swarm/evidence/epic-promotions.jsonl`.",
       "",
-      "A record is appended every time the architect calls `epic_run_phase`.",
+      "A record is appended every time the architect calls `epic_decide_phase`.",
       "If you expected one and there isn't, the architect likely didn't invoke it for this phase — run `/swarm epic decide` to preview what Epic Mode would decide right now."
     ].join(`
 `);
@@ -66937,7 +66938,7 @@ function renderCalibration(directory) {
       "",
       `Static activation threshold: ${staticThreshold.toFixed(3)} (from \`turbo.epic.mode.activation_threshold\`)`,
       "",
-      "The calibration engine writes state on the first `epic_run_phase` call that consumes a divergence record. Until then, the static threshold and an empty hot-module list are in effect."
+      "The calibration engine writes state on the first `epic_decide_phase` call that consumes a divergence record. Until then, the static threshold and an empty hot-module list are in effect."
     ].join(`
 `);
   }
@@ -67034,7 +67035,7 @@ function formatVerdict(verdict) {
       lines.push(`- ${r}`);
   }
   lines.push("");
-  lines.push("_This was a read-only `/swarm epic decide` call — no execution was dispatched and no evidence file was written. Run via the `epic_run_phase` tool to actually act on the verdict._");
+  lines.push("_This was a read-only `/swarm epic decide` call — no execution was dispatched and no evidence file was written. To act on this verdict, the architect should declare scopes for all pending tasks, then call `epic_decide_phase` → `lean_turbo_plan_lanes` → `Task` per lane._");
   return lines.join(`
 `);
 }
@@ -81774,7 +81775,7 @@ Epic Mode NOT enabled: Lean Turbo failed to enable (Epic Mode requires Lean Turb
 Epic Mode could not be enabled: ${error93 instanceof Error ? error93.message : String(error93)}`;
     }
     return `${leanMsg}
-Epic Mode enabled — the architect will use epic_run_phase for phase execution.`;
+Epic Mode enabled — the architect will use the transparent decide-then-dispatch path: declare_scope → epic_decide_phase → lean_turbo_plan_lanes → Task (per lane) → epic_record_divergence.`;
   }
   if (arg0 === "epic" && arg1 === "off") {
     disableTurbo("/swarm turbo epic off");
@@ -81799,7 +81800,7 @@ Epic Mode NOT enabled: Lean Turbo failed to enable.`;
 Epic Mode could not be enabled: ${error93 instanceof Error ? error93.message : String(error93)}`;
     }
     return `${leanMsg}
-Epic Mode enabled — the architect will use epic_run_phase for phase execution.`;
+Epic Mode enabled — the architect will use the transparent decide-then-dispatch path: declare_scope → epic_decide_phase → lean_turbo_plan_lanes → Task (per lane) → epic_record_divergence.`;
   }
   if (isTurboOn) {
     disableTurbo("/swarm turbo (toggle off via unknown arg)");
@@ -83042,7 +83043,7 @@ var init_registry = __esm(() => {
     epic: {
       handler: (ctx) => handleEpicCommand(ctx.directory, ctx.args, ctx.sessionID),
       description: "Toggle Epic Mode (autonomous coupling-aware parallel activation) and inspect its decisions",
-      details: "Epic Mode is an additive overlay that composes Lean Turbo. When on, the architect should call epic_run_phase(phase) instead of lean_turbo_run_phase(phase); epic_run_phase computes the plan-wide coupling coefficient p and gates parallel promotion on p + a hot-module check + a greenfield rule. Subcommands: on, off, status, decide (read-only what-if), last (most recent decision from durable evidence log), calibration (Capability D state: learned threshold + hot modules + recent divergent tasks). Bare /swarm epic shows status. Decision rationale persists to .swarm/evidence/epic-promotions.jsonl after every epic_run_phase invocation.",
+      details: "Epic Mode is an additive overlay that composes Lean Turbo. When on, the architect follows the transparent decide-then-dispatch path: declare_scope (per pending task) → epic_decide_phase → lean_turbo_plan_lanes → Task (one per lane, all in one message — each parallel coder appears as a visible subagent the user can click into) → epic_record_divergence. epic_decide_phase computes the plan-wide coupling coefficient p and gates parallel promotion on p + a hot-module check + a greenfield rule. Subcommands: on, off, status, decide (read-only what-if), last (most recent decision from durable evidence log), calibration (Capability D state: learned threshold + hot modules + recent divergent tasks). Bare /swarm epic shows status. Decision rationale persists to .swarm/evidence/epic-promotions.jsonl after every epic_decide_phase invocation.",
       args: "on | off | status | decide | last | calibration",
       category: "diagnostics"
     },
@@ -123380,11 +123381,11 @@ async function executeEpicDecidePhase(args2) {
         success: false,
         reason: "scopes-missing",
         missingScopes: tasksMissingScope,
-        message: `Cannot run epic_run_phase(phase=${phase}): ${tasksMissingScope.length} pending task(s) ` + `have no declared scope and no files_touched in plan.json. ` + `Lean Turbo's lane planner needs scope data to compute parallel lanes; without it the ` + `dispatch produces empty lanes and Epic Mode's parallelization is silently broken.
+        message: `Cannot decide phase ${phase}: ${tasksMissingScope.length} pending task(s) ` + `have no declared scope and no files_touched in plan.json. ` + `Lean Turbo's lane planner needs scope data to compute parallel lanes; without it the ` + `dispatch produces empty lanes and Epic Mode's parallelization is silently broken.
 
 ` + `Missing scopes: ${list}
 
-` + `Resolution: call \`declare_scope\` once for EACH of those task ids, passing the exact ` + `file paths the task will touch. Then re-invoke \`epic_run_phase(phase=${phase})\`.`
+` + `Resolution: call \`declare_scope\` once for EACH of those task ids, passing the exact ` + `file paths the task will touch. Then re-invoke \`epic_decide_phase(phase=${phase})\`.`
       };
     }
   }
@@ -123490,7 +123491,7 @@ async function executeEpicDecidePhase(args2) {
   };
 }
 var epic_decide_phase = createSwarmTool({
-  description: "Compute the Epic Mode verdict for a phase WITHOUT dispatching Lean Turbo. Runs the same preflight + calibration + p + gate logic as `epic_run_phase`, persists the decision to .swarm/evidence/epic-promotions.jsonl, and returns the verdict (promote/demote/error) so the architect can either dispatch lanes via the visible `Task` tool (promote path) or fall back to per-task serial (demote path). Pair with `lean_turbo_plan_lanes` to get the lane plan when promoted. Use only when /swarm epic is on for the session.",
+  description: "Compute the Epic Mode verdict for a phase. Runs a scope-graph preflight, rolls the calibration loop forward over any new divergence records, computes the plan-wide coupling coefficient `p`, gates on three checks (p-threshold, hot-module, greenfield), persists the decision to .swarm/evidence/epic-promotions.jsonl, and returns the verdict (promote/demote/error). This tool does NOT dispatch coders; on a `promote` verdict the architect pairs it with `lean_turbo_plan_lanes` to obtain the lane plan, then issues one `Task(subagent_type='coder', ...)` call per lane (all in one assistant message) so each parallel coder appears as a visible subagent. On a `demote` verdict the architect falls back to per-task serial. Use only when /swarm epic is on for the session.",
   args: {
     directory: exports_external.string().describe("Project root directory"),
     phase: exports_external.number().int().positive().describe("Phase number to decide on"),

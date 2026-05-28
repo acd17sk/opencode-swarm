@@ -183,13 +183,13 @@ export async function executeEpicDecidePhase(
 				reason: 'scopes-missing',
 				missingScopes: tasksMissingScope,
 				message:
-					`Cannot run epic_run_phase(phase=${phase}): ${tasksMissingScope.length} pending task(s) ` +
+					`Cannot decide phase ${phase}: ${tasksMissingScope.length} pending task(s) ` +
 					`have no declared scope and no files_touched in plan.json. ` +
 					`Lean Turbo's lane planner needs scope data to compute parallel lanes; without it the ` +
 					`dispatch produces empty lanes and Epic Mode's parallelization is silently broken.\n\n` +
 					`Missing scopes: ${list}\n\n` +
 					`Resolution: call \`declare_scope\` once for EACH of those task ids, passing the exact ` +
-					`file paths the task will touch. Then re-invoke \`epic_run_phase(phase=${phase})\`.`,
+					`file paths the task will touch. Then re-invoke \`epic_decide_phase(phase=${phase})\`.`,
 			};
 		}
 	}
@@ -481,7 +481,7 @@ export async function executeEpicRunPhase(
  */
 export const epic_decide_phase: ToolDefinition = createSwarmTool({
 	description:
-		'Compute the Epic Mode verdict for a phase WITHOUT dispatching Lean Turbo. Runs the same preflight + calibration + p + gate logic as `epic_run_phase`, persists the decision to .swarm/evidence/epic-promotions.jsonl, and returns the verdict (promote/demote/error) so the architect can either dispatch lanes via the visible `Task` tool (promote path) or fall back to per-task serial (demote path). Pair with `lean_turbo_plan_lanes` to get the lane plan when promoted. Use only when /swarm epic is on for the session.',
+		'Compute the Epic Mode verdict for a phase. Runs a scope-graph preflight, rolls the calibration loop forward over any new divergence records, computes the plan-wide coupling coefficient `p`, gates on three checks (p-threshold, hot-module, greenfield), persists the decision to .swarm/evidence/epic-promotions.jsonl, and returns the verdict (promote/demote/error). This tool does NOT dispatch coders; on a `promote` verdict the architect pairs it with `lean_turbo_plan_lanes` to obtain the lane plan, then issues one `Task(subagent_type=\'coder\', ...)` call per lane (all in one assistant message) so each parallel coder appears as a visible subagent. On a `demote` verdict the architect falls back to per-task serial. Use only when /swarm epic is on for the session.',
 	args: {
 		directory: z.string().describe('Project root directory'),
 		phase: z.number().int().positive().describe('Phase number to decide on'),

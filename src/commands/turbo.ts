@@ -214,7 +214,7 @@ export async function handleTurboCommand(
 			);
 			return `${leanMsg}\nEpic Mode could not be enabled: ${error instanceof Error ? error.message : String(error)}`;
 		}
-		return `${leanMsg}\nEpic Mode enabled — the architect will use epic_run_phase for phase execution.`;
+		return `${leanMsg}\nEpic Mode enabled — the architect will use the transparent decide-then-dispatch path: declare_scope → epic_decide_phase → lean_turbo_plan_lanes → Task (per lane) → epic_record_divergence.`;
 	}
 	if (arg0 === 'epic' && arg1 === 'off') {
 		// `disableTurbo` already cross-clears Epic Mode (durable +
@@ -245,7 +245,7 @@ export async function handleTurboCommand(
 			);
 			return `${leanMsg}\nEpic Mode could not be enabled: ${error instanceof Error ? error.message : String(error)}`;
 		}
-		return `${leanMsg}\nEpic Mode enabled — the architect will use epic_run_phase for phase execution.`;
+		return `${leanMsg}\nEpic Mode enabled — the architect will use the transparent decide-then-dispatch path: declare_scope → epic_decide_phase → lean_turbo_plan_lanes → Task (per lane) → epic_record_divergence.`;
 	}
 
 	// Default fallback: unrecognized argument → toggle (restores legacy behavior)

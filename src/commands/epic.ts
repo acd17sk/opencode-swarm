@@ -122,7 +122,7 @@ function enableAndAck(
 	return [
 		'Epic Mode enabled for this session.',
 		'',
-		'The architect will now use `epic_run_phase(phase)` instead of `lean_turbo_run_phase(phase)` for phase execution. Each call computes the plan-wide coupling coefficient `p` and chooses promote/demote per the configured thresholds.',
+		'The architect will now use the transparent decide-then-dispatch path for phase execution: `declare_scope` (×N pending tasks) → `epic_decide_phase` → `lean_turbo_plan_lanes` → `Task` (×lanes, one message) → `epic_record_divergence`. Each phase decision computes the plan-wide coupling coefficient `p` and chooses promote/demote per the configured thresholds. Promoted phases dispatch coders via opencode\'s `Task` tool so you can click into each parallel coder and watch progress live.',
 		'',
 		'Run `/swarm epic decide` to see the current verdict without executing.',
 	].join('\n');
@@ -149,7 +149,7 @@ function renderStatus(directory: string, sessionID: string): string {
 	// differs (the first one needs repair; the second one just needs `on`).
 	if (_internals.isStateUnreadable(directory)) {
 		lines.push(
-			'**Epic Mode state is unreadable** (`.swarm/epic-state.json` is corrupt or has an unexpected shape). Status cannot be reported until the file is repaired or removed. The fail-closed marker means `epic_run_phase` will refuse to dispatch in this state.',
+			'**Epic Mode state is unreadable** (`.swarm/epic-state.json` is corrupt or has an unexpected shape). Status cannot be reported until the file is repaired or removed. The fail-closed marker means `epic_decide_phase` will refuse to compute a verdict in this state.',
 		);
 		return lines.join('\n');
 	}
@@ -197,7 +197,7 @@ function renderLast(directory: string): string {
 			'',
 			'No decisions recorded yet at `.swarm/evidence/epic-promotions.jsonl`.',
 			'',
-			'A record is appended every time the architect calls `epic_run_phase`.',
+			'A record is appended every time the architect calls `epic_decide_phase`.',
 			'If you expected one and there isn\'t, the architect likely didn\'t invoke it for this phase — run `/swarm epic decide` to preview what Epic Mode would decide right now.',
 		].join('\n');
 	}
@@ -280,7 +280,7 @@ function renderCalibration(directory: string): string {
 			'',
 			`Static activation threshold: ${staticThreshold.toFixed(3)} (from \`turbo.epic.mode.activation_threshold\`)`,
 			'',
-			'The calibration engine writes state on the first `epic_run_phase` call that consumes a divergence record. Until then, the static threshold and an empty hot-module list are in effect.',
+			'The calibration engine writes state on the first `epic_decide_phase` call that consumes a divergence record. Until then, the static threshold and an empty hot-module list are in effect.',
 		].join('\n');
 	}
 
@@ -414,7 +414,7 @@ function formatVerdict(verdict: EpicActivationVerdict): string {
 	}
 	lines.push('');
 	lines.push(
-		'_This was a read-only `/swarm epic decide` call — no execution was dispatched and no evidence file was written. Run via the `epic_run_phase` tool to actually act on the verdict._',
+		'_This was a read-only `/swarm epic decide` call — no execution was dispatched and no evidence file was written. To act on this verdict, the architect should declare scopes for all pending tasks, then call `epic_decide_phase` → `lean_turbo_plan_lanes` → `Task` per lane._',
 	);
 	return lines.join('\n');
 }

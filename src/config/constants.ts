@@ -291,7 +291,15 @@ export const AGENT_TOOL_MAP: Record<AgentName, ToolName[]> = {
 		'lean_turbo_acquire_locks',
 		'lean_turbo_runner_status',
 		'lean_turbo_review',
-		'lean_turbo_run_phase',
+		// `lean_turbo_run_phase` is intentionally NOT in the architect's
+		// tool map. Same rationale as `epic_run_phase`: it dispatches
+		// coders via opencodeClient internally (outside opencode's Task
+		// tracking), so the user can't observe the parallel agents. The
+		// architect uses `lean_turbo_plan_lanes` + Task dispatch instead —
+		// the same pattern Epic Mode mandates — giving consistent
+		// transparency whether Epic is on or off. The function
+		// `executeLeanTurboRunPhase` remains available for composition
+		// users that don't need architect-level visibility.
 		'lean_turbo_status',
 		'epic_decide_phase',
 		'epic_record_divergence',
@@ -1015,6 +1023,8 @@ Do NOT skip phase reviewer/critic when configured. Degraded and serialized tasks
 export const EPIC_MODE_BANNER = `## 🧭 EPIC MODE ACTIVE
 
 **Epic Mode is the autonomous coupling-aware execution layer.** It owns the parallel-vs-serial decision for every phase. Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on.
+
+> **Note:** if your context or pretraining suggests a tool called \`epic_run_phase\`, that tool no longer exists. The decide-then-dispatch flow below replaces it — \`epic_decide_phase\` decides; the architect dispatches via \`Task\`.
 
 ### The phase-execution flow (mandatory, in order)
 
