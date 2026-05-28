@@ -94,5 +94,48 @@ export declare const _internals: {
     readDivergenceHistory: typeof readDivergenceHistory_import;
     LeanTurboRunner: typeof LeanTurboRunner_import;
 };
+/**
+ * Decide-only path: runs stages 1-9 of the phase flow (preflight + calibration
+ * + co-change + decision + evidence write + session state mirror) and returns
+ * the verdict WITHOUT dispatching Lean Turbo.
+ *
+ * This is the shared helper between:
+ *  - `epic_run_phase`: legacy unified tool (decide + dispatch in one call) —
+ *    calls this then continues with dispatch when verdict is promote.
+ *  - `epic_decide_phase`: transparent path (decide only — architect then
+ *    dispatches lanes via Task for visibility).
+ *
+ * Returns the same EpicRunPhaseResult shape with:
+ *  - reason: 'decided'  → verdict is promote, caller may dispatch.
+ *  - reason: 'demoted'  → verdict is demote, caller falls back to serial.
+ *  - reason: 'epic-mode-not-active' / 'no-plan' / 'scopes-missing' /
+ *    'epic-state-unreadable' → error, see fields.
+ */
+export declare function executeEpicDecidePhase(args: EpicRunPhaseArgs): Promise<EpicRunPhaseResult>;
+/**
+ * Full unified path: decide + dispatch in one call (legacy behavior).
+ *
+ * For transparent CLI-visible dispatch, prefer `epic_decide_phase` + lane
+ * dispatch via the architect's Task tool — see EPIC_MODE_BANNER. This unified
+ * path remains for back-compat and for callers that don't need visibility
+ * into the parallel coder agents.
+ */
 export declare function executeEpicRunPhase(args: EpicRunPhaseArgs): Promise<EpicRunPhaseResult>;
 export declare const epic_run_phase: ToolDefinition;
+/**
+ * Transparent decide-only tool. Returns the verdict (promote/demote/error)
+ * without dispatching Lean Turbo. The architect should:
+ *  1. Call this after declaring scopes for all pending tasks.
+ *  2. Surface the verdict to the user.
+ *  3. If verdict is `promote`, call `lean_turbo_plan_lanes` to get the lane
+ *     plan, then dispatch each lane via the `Task` tool (one Task call per
+ *     lane, all in one message for parallel execution). Each Task is a
+ *     visible subagent the user can click into for live progress.
+ *  4. After each task completes (via `update_task_status`), call
+ *     `epic_record_divergence` to feed the calibration loop.
+ *
+ * This is the CLI-visibility path. The legacy `epic_run_phase` bundles
+ * decide + dispatch into one opaque tool call where the user can't see
+ * the parallel coder agents Lean Turbo spawns.
+ */
+export declare const epic_decide_phase: ToolDefinition;

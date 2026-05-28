@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
 	_internals,
 	epic_run_phase,
+	executeEpicDecidePhase,
 	executeEpicRunPhase,
 } from '../../../src/tools/epic-run-phase';
 
@@ -799,5 +800,95 @@ describe('executeEpicRunPhase — scope-missing preflight (live-test escalation)
 		});
 		expect(result.reason).toBe('scopes-missing');
 		expect(result.missingScopes).toEqual(['2.2']);
+	});
+});
+
+describe('executeEpicDecidePhase — transparent decide-only path', () => {
+	test('returns reason="decided" on promote without dispatching Lean Turbo', async () => {
+		let runnerInvoked = false;
+		class TrackingRunner {
+			runPhase = async () => {
+				runnerInvoked = true;
+				return { ok: true };
+			};
+			cleanupAfterSuccess = async () => {};
+			cleanupAfterFailure = async () => {};
+		}
+		_internals.LeanTurboRunner = TrackingRunner as never;
+
+		const result = await executeEpicDecidePhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		expect(result.success).toBe(true);
+		expect(result.reason).toBe('decided');
+		expect(result.verdict?.decision).toBe('promote');
+		// Critically: Lean Turbo was NOT invoked — the decide-only tool stops
+		// before dispatch so the architect can dispatch via Task instead.
+		expect(runnerInvoked).toBe(false);
+		// Lane fields are absent because no dispatch happened.
+		expect(result.lanes).toBeUndefined();
+	});
+
+	test('returns reason="demoted" on demote without dispatching', async () => {
+		stub.verdict = {
+			...stub.verdict,
+			decision: 'demote',
+			p: 0.8,
+			blockingReasons: ['p too high'],
+		};
+		let runnerInvoked = false;
+		class TrackingRunner {
+			runPhase = async () => {
+				runnerInvoked = true;
+				return { ok: true };
+			};
+			cleanupAfterSuccess = async () => {};
+			cleanupAfterFailure = async () => {};
+		}
+		_internals.LeanTurboRunner = TrackingRunner as never;
+
+		const result = await executeEpicDecidePhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		expect(result.success).toBe(true);
+		expect(result.reason).toBe('demoted');
+		expect(result.verdict?.decision).toBe('demote');
+		expect(runnerInvoked).toBe(false);
+	});
+
+	test('still persists evidence + records decision (same audit trail as run_phase)', async () => {
+		await executeEpicDecidePhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		expect(stub.evidenceAppends).toBe(1);
+		expect(stub.decisionRecordings).toBe(1);
+	});
+
+	test('propagates scope-missing error without ever computing the verdict', async () => {
+		stub.plan = {
+			phases: [
+				{
+					id: 1,
+					name: 'P1',
+					tasks: [
+						{ id: '1.1', description: 'a', status: 'pending', files_touched: [] },
+					],
+				},
+			],
+		};
+		_internals.readTaskScopes = (() => null) as never;
+		const result = await executeEpicDecidePhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+		expect(result.reason).toBe('scopes-missing');
+		expect(stub.evidenceAppends).toBe(0);
 	});
 });

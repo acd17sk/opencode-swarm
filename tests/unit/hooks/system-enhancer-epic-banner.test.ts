@@ -33,15 +33,15 @@ describe('EPIC_MODE_BANNER content', () => {
 	test('instructs the architect to use epic_run_phase, not lean_turbo_run_phase', () => {
 		expect(EPIC_MODE_BANNER).toContain('epic_run_phase');
 		expect(EPIC_MODE_BANNER).toContain('lean_turbo_run_phase');
-		// New phrasing (post-live-test fix): the banner now mandates the
-		// epic_run_phase call BEFORE any phase work and forbids calling
-		// lean_turbo_run_phase directly.
+		// Post-live-test fix: the banner mandates the transparent
+		// decide-then-dispatch path (epic_decide_phase + Task dispatch)
+		// and forbids calling lean_turbo_run_phase directly.
 		expect(EPIC_MODE_BANNER).toContain(
 			'Do NOT call `lean_turbo_run_phase` directly',
 		);
-		expect(EPIC_MODE_BANNER).toContain(
-			'Call `epic_run_phase` BEFORE any phase work',
-		);
+		expect(EPIC_MODE_BANNER).toContain('epic_decide_phase');
+		expect(EPIC_MODE_BANNER).toContain('Task');
+		expect(EPIC_MODE_BANNER).toContain('TRANSPARENT');
 	});
 
 	test('explains both promote and demote outcomes', () => {

@@ -114,7 +114,24 @@ export const _internals = {
 	LeanTurboRunner: LeanTurboRunner_import as typeof LeanTurboRunner_import,
 };
 
-export async function executeEpicRunPhase(
+/**
+ * Decide-only path: runs stages 1-9 of the phase flow (preflight + calibration
+ * + co-change + decision + evidence write + session state mirror) and returns
+ * the verdict WITHOUT dispatching Lean Turbo.
+ *
+ * This is the shared helper between:
+ *  - `epic_run_phase`: legacy unified tool (decide + dispatch in one call) —
+ *    calls this then continues with dispatch when verdict is promote.
+ *  - `epic_decide_phase`: transparent path (decide only — architect then
+ *    dispatches lanes via Task for visibility).
+ *
+ * Returns the same EpicRunPhaseResult shape with:
+ *  - reason: 'decided'  → verdict is promote, caller may dispatch.
+ *  - reason: 'demoted'  → verdict is demote, caller falls back to serial.
+ *  - reason: 'epic-mode-not-active' / 'no-plan' / 'scopes-missing' /
+ *    'epic-state-unreadable' → error, see fields.
+ */
+export async function executeEpicDecidePhase(
 	args: EpicRunPhaseArgs,
 ): Promise<EpicRunPhaseResult> {
 	const { directory, phase, sessionID } = args;
@@ -339,13 +356,42 @@ export async function executeEpicRunPhase(
 		};
 	}
 
-	if (verdict.decision === 'demote') {
-		return {
-			success: true,
-			verdict,
-			reason: 'demoted',
-		};
+	// End of decide-only path. Return verdict to the caller. `epic_run_phase`
+	// (below) continues with Lean Turbo dispatch when reason === 'decided';
+	// `epic_decide_phase` (separate tool) returns here so the architect can
+	// dispatch lanes via Task for full CLI visibility.
+	return {
+		success: true,
+		verdict,
+		reason: verdict.decision === 'demote' ? 'demoted' : 'decided',
+	};
+}
+
+/**
+ * Full unified path: decide + dispatch in one call (legacy behavior).
+ *
+ * For transparent CLI-visible dispatch, prefer `epic_decide_phase` + lane
+ * dispatch via the architect's Task tool — see EPIC_MODE_BANNER. This unified
+ * path remains for back-compat and for callers that don't need visibility
+ * into the parallel coder agents.
+ */
+export async function executeEpicRunPhase(
+	args: EpicRunPhaseArgs,
+): Promise<EpicRunPhaseResult> {
+	const { directory, phase, sessionID } = args;
+
+	// Run the decide-only path. Any error reason ('epic-mode-not-active',
+	// 'no-plan', 'scopes-missing', 'epic-state-unreadable') propagates as-is.
+	// 'demoted' propagates as-is. Only 'decided' continues with dispatch.
+	const decided = await executeEpicDecidePhase(args);
+	if (decided.reason !== 'decided') {
+		return decided;
 	}
+	const verdict = decided.verdict!; // 'decided' guarantees verdict is set
+
+	// Re-load config for the dispatch step (cheap — both calls share filesystem
+	// cache effectively).
+	const { config } = _internals.loadPluginConfigWithMeta(directory);
 
 	// --- Promotion path: dispatch into LeanTurboRunner.
 	const leanConfig =
@@ -407,7 +453,7 @@ export async function executeEpicRunPhase(
 
 export const epic_run_phase: ToolDefinition = createSwarmTool({
 	description:
-		'Execute a phase under Epic Mode (Capability C). Computes the plan-wide coupling coefficient p, gates on the activation threshold + hot-module check + greenfield rule, and either dispatches Lean Turbo for parallel execution (when promoted) or returns a "demoted to serial" verdict (when any gate fails). Persists decision rationale to .swarm/evidence/epic-promotions.jsonl. Use only when /swarm epic is on for the session.',
+		'Execute a phase under Epic Mode (Capability C) — LEGACY UNIFIED PATH. Computes p, decides promote/demote, and dispatches Lean Turbo all in one call. Lean Turbo\'s internal coder dispatch is opaque to the architect\'s CLI; for visible per-lane progress, prefer `epic_decide_phase` + the architect\'s own Task dispatch (see EPIC_MODE_BANNER). Use only when /swarm epic is on for the session.',
 	args: {
 		directory: z.string().describe('Project root directory'),
 		phase: z.number().int().positive().describe('Phase number to execute'),
@@ -415,19 +461,54 @@ export const epic_run_phase: ToolDefinition = createSwarmTool({
 	},
 	execute: async (args: unknown, _directory: string, ctx) => {
 		const { phase, sessionID: argSessionID } = args as EpicRunPhaseArgs;
-		// Prefer the framework-supplied session ID over whatever the model
-		// passed: weaker models hallucinate `sessionID="default"` (or copy
-		// from a stale prompt) and the strict per-session
-		// `isEpicModeActive` check then refuses to dispatch even though
-		// the user toggled epic on for the *real* session. `ctx.sessionID`
-		// is the actual current session and is the one that toggled the
-		// state, so it's the right source of truth.
 		const sessionID =
 			ctx?.sessionID && ctx.sessionID.length > 0
 				? ctx.sessionID
 				: argSessionID;
 		return JSON.stringify(
 			await executeEpicRunPhase({
+				phase,
+				sessionID,
+				directory: _directory,
+			}),
+			null,
+			2,
+		);
+	},
+});
+
+/**
+ * Transparent decide-only tool. Returns the verdict (promote/demote/error)
+ * without dispatching Lean Turbo. The architect should:
+ *  1. Call this after declaring scopes for all pending tasks.
+ *  2. Surface the verdict to the user.
+ *  3. If verdict is `promote`, call `lean_turbo_plan_lanes` to get the lane
+ *     plan, then dispatch each lane via the `Task` tool (one Task call per
+ *     lane, all in one message for parallel execution). Each Task is a
+ *     visible subagent the user can click into for live progress.
+ *  4. After each task completes (via `update_task_status`), call
+ *     `epic_record_divergence` to feed the calibration loop.
+ *
+ * This is the CLI-visibility path. The legacy `epic_run_phase` bundles
+ * decide + dispatch into one opaque tool call where the user can't see
+ * the parallel coder agents Lean Turbo spawns.
+ */
+export const epic_decide_phase: ToolDefinition = createSwarmTool({
+	description:
+		'Compute the Epic Mode verdict for a phase WITHOUT dispatching Lean Turbo. Runs the same preflight + calibration + p + gate logic as `epic_run_phase`, persists the decision to .swarm/evidence/epic-promotions.jsonl, and returns the verdict (promote/demote/error) so the architect can either dispatch lanes via the visible `Task` tool (promote path) or fall back to per-task serial (demote path). Pair with `lean_turbo_plan_lanes` to get the lane plan when promoted. Use only when /swarm epic is on for the session.',
+	args: {
+		directory: z.string().describe('Project root directory'),
+		phase: z.number().int().positive().describe('Phase number to decide on'),
+		sessionID: z.string().describe('Active session ID'),
+	},
+	execute: async (args: unknown, _directory: string, ctx) => {
+		const { phase, sessionID: argSessionID } = args as EpicRunPhaseArgs;
+		const sessionID =
+			ctx?.sessionID && ctx.sessionID.length > 0
+				? ctx.sessionID
+				: argSessionID;
+		return JSON.stringify(
+			await executeEpicDecidePhase({
 				phase,
 				sessionID,
 				directory: _directory,

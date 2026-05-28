@@ -354,8 +354,23 @@ Lean Turbo's lane planner reads task scopes (from \`.swarm/scopes/scope-{taskId}
 
 **If \`epic_run_phase\` returns \`reason: "scopes-missing"\`**, the tool is telling you that one or more pending tasks lack scope data and it refused to dispatch. The response includes a \`missingScopes\` array of task ids. Resolution: call \`declare_scope\` for each missing task id with the correct file paths, then re-invoke \`epic_run_phase\`. Do not interpret this error as "Epic Mode decided to serialize" — Epic never even ran the decision; the preflight blocked it.
 
-**1. Call \`epic_run_phase\` BEFORE any phase work — not just full-phase batch execution.**
-After all pending-task scopes for the phase are declared (step 0), call \`epic_run_phase(directory, phase=N, sessionID)\` once for that phase. The tool computes the plan-wide coupling coefficient \`p\` and gates on three checks (p-threshold, hot-module, greenfield), then either invokes Lean Turbo for parallel execution (promote) or returns a structured "demoted" verdict (any gate failed). Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on — Epic decides whether Lean Turbo runs at all.
+**1. Use the TRANSPARENT decide-then-dispatch path so the user can see each coder agent's progress.**
+After all pending-task scopes for the phase are declared (step 0), the recommended flow is:
+
+  **a. Call \`epic_decide_phase(directory, phase=N, sessionID)\`** — fast (~2-5s). Computes p, runs the three gates (p-threshold, hot-module, greenfield), persists the verdict to \`.swarm/evidence/epic-promotions.jsonl\`. Returns one of:
+   - \`reason: "decided"\` with \`verdict.decision === "promote"\` → continue to step 1b
+   - \`reason: "demoted"\` → skip to step 4 (per-task serial fallback)
+   - \`reason: "scopes-missing"\` or other error → fix and retry per the structured message
+
+  **b. Call \`lean_turbo_plan_lanes(directory, phase=N, sessionID)\`** — returns the lane plan: \`[{laneId, taskIds, files}, ...]\`. This is the same plan Lean Turbo would compute internally; you're going to dispatch it yourself for visibility.
+
+  **c. Dispatch each lane via the \`Task\` tool, ALL IN ONE MESSAGE.** For each lane in the plan, issue: \`Task(subagent_type="coder", description="Phase N lane <laneId>", prompt="<prompt that includes the lane's task ids + scope + acceptance criteria>")\`. Issuing all Task calls in one assistant message means opencode runs them in parallel, AND each one is a visible subagent the user can click into to see thinking + tool calls + progress in real time.
+
+  **d. Wait for all Task calls to complete**, collect their results, then proceed to step 5 (record divergence per task).
+
+\`epic_run_phase\` (legacy unified tool) still works and does decide + dispatch in one call, but Lean Turbo's internal coder dispatch is opaque to the user's CLI — the user sees the tool "frozen" for minutes with no visibility into the parallel coder agents. Use the decide-then-dispatch path above for any phase you want the user to be able to observe.
+
+Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on — Epic owns the decision.
 
 **2. SURFACE the verdict to the user BEFORE proceeding.**
 After every \`epic_run_phase\` call, IMMEDIATELY show the user a one-line summary:
@@ -123336,7 +123351,7 @@ var _internals61 = {
   readDivergenceHistory,
   LeanTurboRunner
 };
-async function executeEpicRunPhase(args2) {
+async function executeEpicDecidePhase(args2) {
   const { directory, phase, sessionID } = args2;
   if (!_internals61.isEpicModeActive(directory, sessionID)) {
     return {
@@ -123468,13 +123483,20 @@ async function executeEpicRunPhase(args2) {
       errors: [msg]
     };
   }
-  if (verdict.decision === "demote") {
-    return {
-      success: true,
-      verdict,
-      reason: "demoted"
-    };
+  return {
+    success: true,
+    verdict,
+    reason: verdict.decision === "demote" ? "demoted" : "decided"
+  };
+}
+async function executeEpicRunPhase(args2) {
+  const { directory, phase, sessionID } = args2;
+  const decided = await executeEpicDecidePhase(args2);
+  if (decided.reason !== "decided") {
+    return decided;
   }
+  const verdict = decided.verdict;
+  const { config: config3 } = _internals61.loadPluginConfigWithMeta(directory);
   const leanConfig = config3.turbo?.strategy === "lean" ? config3.turbo.lean : undefined;
   let runResult = null;
   let runError = null;
@@ -123520,7 +123542,7 @@ async function executeEpicRunPhase(args2) {
   };
 }
 var epic_run_phase = createSwarmTool({
-  description: 'Execute a phase under Epic Mode (Capability C). Computes the plan-wide coupling coefficient p, gates on the activation threshold + hot-module check + greenfield rule, and either dispatches Lean Turbo for parallel execution (when promoted) or returns a "demoted to serial" verdict (when any gate fails). Persists decision rationale to .swarm/evidence/epic-promotions.jsonl. Use only when /swarm epic is on for the session.',
+  description: "Execute a phase under Epic Mode (Capability C) — LEGACY UNIFIED PATH. Computes p, decides promote/demote, and dispatches Lean Turbo all in one call. Lean Turbo's internal coder dispatch is opaque to the architect's CLI; for visible per-lane progress, prefer `epic_decide_phase` + the architect's own Task dispatch (see EPIC_MODE_BANNER). Use only when /swarm epic is on for the session.",
   args: {
     directory: exports_external.string().describe("Project root directory"),
     phase: exports_external.number().int().positive().describe("Phase number to execute"),
@@ -123530,6 +123552,23 @@ var epic_run_phase = createSwarmTool({
     const { phase, sessionID: argSessionID } = args2;
     const sessionID = ctx?.sessionID && ctx.sessionID.length > 0 ? ctx.sessionID : argSessionID;
     return JSON.stringify(await executeEpicRunPhase({
+      phase,
+      sessionID,
+      directory: _directory
+    }), null, 2);
+  }
+});
+var epic_decide_phase = createSwarmTool({
+  description: "Compute the Epic Mode verdict for a phase WITHOUT dispatching Lean Turbo. Runs the same preflight + calibration + p + gate logic as `epic_run_phase`, persists the decision to .swarm/evidence/epic-promotions.jsonl, and returns the verdict (promote/demote/error) so the architect can either dispatch lanes via the visible `Task` tool (promote path) or fall back to per-task serial (demote path). Pair with `lean_turbo_plan_lanes` to get the lane plan when promoted. Use only when /swarm epic is on for the session.",
+  args: {
+    directory: exports_external.string().describe("Project root directory"),
+    phase: exports_external.number().int().positive().describe("Phase number to decide on"),
+    sessionID: exports_external.string().describe("Active session ID")
+  },
+  execute: async (args2, _directory, ctx) => {
+    const { phase, sessionID: argSessionID } = args2;
+    const sessionID = ctx?.sessionID && ctx.sessionID.length > 0 ? ctx.sessionID : argSessionID;
+    return JSON.stringify(await executeEpicDecidePhase({
       phase,
       sessionID,
       directory: _directory
@@ -127799,6 +127838,7 @@ async function initializeOpenCodeSwarm(ctx) {
       knowledge_recall,
       knowledge_receipt,
       knowledge_remove,
+      epic_decide_phase,
       epic_record_divergence,
       epic_run_phase,
       lean_turbo_acquire_locks,

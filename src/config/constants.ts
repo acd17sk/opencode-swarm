@@ -1020,8 +1020,23 @@ Lean Turbo's lane planner reads task scopes (from \`.swarm/scopes/scope-{taskId}
 
 **If \`epic_run_phase\` returns \`reason: "scopes-missing"\`**, the tool is telling you that one or more pending tasks lack scope data and it refused to dispatch. The response includes a \`missingScopes\` array of task ids. Resolution: call \`declare_scope\` for each missing task id with the correct file paths, then re-invoke \`epic_run_phase\`. Do not interpret this error as "Epic Mode decided to serialize" — Epic never even ran the decision; the preflight blocked it.
 
-**1. Call \`epic_run_phase\` BEFORE any phase work — not just full-phase batch execution.**
-After all pending-task scopes for the phase are declared (step 0), call \`epic_run_phase(directory, phase=N, sessionID)\` once for that phase. The tool computes the plan-wide coupling coefficient \`p\` and gates on three checks (p-threshold, hot-module, greenfield), then either invokes Lean Turbo for parallel execution (promote) or returns a structured "demoted" verdict (any gate failed). Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on — Epic decides whether Lean Turbo runs at all.
+**1. Use the TRANSPARENT decide-then-dispatch path so the user can see each coder agent's progress.**
+After all pending-task scopes for the phase are declared (step 0), the recommended flow is:
+
+  **a. Call \`epic_decide_phase(directory, phase=N, sessionID)\`** — fast (~2-5s). Computes p, runs the three gates (p-threshold, hot-module, greenfield), persists the verdict to \`.swarm/evidence/epic-promotions.jsonl\`. Returns one of:
+   - \`reason: "decided"\` with \`verdict.decision === "promote"\` → continue to step 1b
+   - \`reason: "demoted"\` → skip to step 4 (per-task serial fallback)
+   - \`reason: "scopes-missing"\` or other error → fix and retry per the structured message
+
+  **b. Call \`lean_turbo_plan_lanes(directory, phase=N, sessionID)\`** — returns the lane plan: \`[{laneId, taskIds, files}, ...]\`. This is the same plan Lean Turbo would compute internally; you're going to dispatch it yourself for visibility.
+
+  **c. Dispatch each lane via the \`Task\` tool, ALL IN ONE MESSAGE.** For each lane in the plan, issue: \`Task(subagent_type="coder", description="Phase N lane <laneId>", prompt="<prompt that includes the lane's task ids + scope + acceptance criteria>")\`. Issuing all Task calls in one assistant message means opencode runs them in parallel, AND each one is a visible subagent the user can click into to see thinking + tool calls + progress in real time.
+
+  **d. Wait for all Task calls to complete**, collect their results, then proceed to step 5 (record divergence per task).
+
+\`epic_run_phase\` (legacy unified tool) still works and does decide + dispatch in one call, but Lean Turbo's internal coder dispatch is opaque to the user's CLI — the user sees the tool "frozen" for minutes with no visibility into the parallel coder agents. Use the decide-then-dispatch path above for any phase you want the user to be able to observe.
+
+Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on — Epic owns the decision.
 
 **2. SURFACE the verdict to the user BEFORE proceeding.**
 After every \`epic_run_phase\` call, IMMEDIATELY show the user a one-line summary:
