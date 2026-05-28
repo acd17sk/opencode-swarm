@@ -16,7 +16,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
 	_internals,
-	epic_run_phase,
+	epic_decide_phase,
 	executeEpicDecidePhase,
 	executeEpicRunPhase,
 } from '../../../src/tools/epic-run-phase';
@@ -612,7 +612,7 @@ describe('executeEpicRunPhase — Capability D calibration wiring', () => {
 	});
 });
 
-describe('epic_run_phase tool — ctx.sessionID precedence (Fix B)', () => {
+describe('epic_decide_phase tool — ctx.sessionID precedence (Fix B)', () => {
 	test('uses ctx.sessionID over args.sessionID when the framework supplies it', async () => {
 		// Reproduce the live failure: weaker models hallucinate
 		// sessionID="default" in args, while the framework supplies the
@@ -623,7 +623,7 @@ describe('epic_run_phase tool — ctx.sessionID precedence (Fix B)', () => {
 			return true;
 		}) as never;
 
-		const def = epic_run_phase as unknown as {
+		const def = epic_decide_phase as unknown as {
 			execute: (
 				args: unknown,
 				ctx?: { sessionID?: string; directory?: string },
@@ -643,7 +643,7 @@ describe('epic_run_phase tool — ctx.sessionID precedence (Fix B)', () => {
 			return true;
 		}) as never;
 
-		const def = epic_run_phase as unknown as {
+		const def = epic_decide_phase as unknown as {
 			execute: (
 				args: unknown,
 				ctx?: { sessionID?: string; directory?: string },

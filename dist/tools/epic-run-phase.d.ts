@@ -121,7 +121,17 @@ export declare function executeEpicDecidePhase(args: EpicRunPhaseArgs): Promise<
  * into the parallel coder agents.
  */
 export declare function executeEpicRunPhase(args: EpicRunPhaseArgs): Promise<EpicRunPhaseResult>;
-export declare const epic_run_phase: ToolDefinition;
+/**
+ * NOTE: `epic_run_phase` is intentionally NOT exposed as a tool to the
+ * architect. The transparent decide-then-dispatch path (epic_decide_phase
+ * + lean_turbo_plan_lanes + Task dispatch) is the ONLY supported flow,
+ * because it gives the user real-time visibility into the parallel coder
+ * agents. The legacy unified-path function `executeEpicRunPhase` remains
+ * exported for tests and any composition users, but no ToolDefinition
+ * wraps it — so the architect cannot call it and accidentally fall back
+ * to the opaque path. This is a deliberate product decision: one path,
+ * unambiguous, always-visible.
+ */
 /**
  * Transparent decide-only tool. Returns the verdict (promote/demote/error)
  * without dispatching Lean Turbo. The architect should:

@@ -30,18 +30,29 @@ afterEach(() => {
 });
 
 describe('EPIC_MODE_BANNER content', () => {
-	test('instructs the architect to use epic_run_phase, not lean_turbo_run_phase', () => {
-		expect(EPIC_MODE_BANNER).toContain('epic_run_phase');
-		expect(EPIC_MODE_BANNER).toContain('lean_turbo_run_phase');
-		// Post-live-test fix: the banner mandates the transparent
-		// decide-then-dispatch path (epic_decide_phase + Task dispatch)
-		// and forbids calling lean_turbo_run_phase directly.
+	test('describes the SINGLE sanctioned phase-execution path', () => {
+		// The banner now describes ONE flow:
+		//   declare_scope → epic_decide_phase → lean_turbo_plan_lanes
+		//     → Task dispatch → epic_record_divergence
+		// All five tool names appear; the opaque alternatives are
+		// explicitly forbidden.
+		expect(EPIC_MODE_BANNER).toContain('declare_scope');
+		expect(EPIC_MODE_BANNER).toContain('epic_decide_phase');
+		expect(EPIC_MODE_BANNER).toContain('lean_turbo_plan_lanes');
+		expect(EPIC_MODE_BANNER).toContain('Task');
+		expect(EPIC_MODE_BANNER).toContain('epic_record_divergence');
+		expect(EPIC_MODE_BANNER).toContain('There is one path');
+	});
+
+	test('forbids the opaque dispatch tools (lean_turbo_run_phase + epic_run_phase)', () => {
+		// Both tools dispatch coders via opencodeClient internally (outside
+		// opencode's Task tracking). The banner must block both so the
+		// transparent Task-based dispatch is the only path the architect
+		// can take.
 		expect(EPIC_MODE_BANNER).toContain(
 			'Do NOT call `lean_turbo_run_phase` directly',
 		);
-		expect(EPIC_MODE_BANNER).toContain('epic_decide_phase');
-		expect(EPIC_MODE_BANNER).toContain('Task');
-		expect(EPIC_MODE_BANNER).toContain('TRANSPARENT');
+		expect(EPIC_MODE_BANNER).toContain('Do not invoke `lean_turbo_run_phase`');
 	});
 
 	test('explains both promote and demote outcomes', () => {
@@ -54,45 +65,50 @@ describe('EPIC_MODE_BANNER content', () => {
 	});
 
 	test('mandates that the architect surface the verdict to the user', () => {
-		// The visibility-fix from live testing: without this, weaker models
-		// (Kimi K2.6 observed) ran epic_run_phase silently and the user had
-		// no signal that Epic Mode was doing anything.
-		expect(EPIC_MODE_BANNER).toContain('SURFACE the verdict');
+		// Without this, weaker models (Kimi K2.6 observed) dispatched
+		// silently and the user had no signal Epic was doing anything.
+		expect(EPIC_MODE_BANNER).toContain(
+			'Surface the verdict to the user immediately',
+		);
 		expect(EPIC_MODE_BANNER).toContain('Epic Mode: <DECISION>');
 	});
 
-	test('lists /swarm epic last as a visibility command', () => {
+	test('lists all four /swarm epic visibility commands', () => {
+		expect(EPIC_MODE_BANNER).toContain('/swarm epic status');
 		expect(EPIC_MODE_BANNER).toContain('/swarm epic last');
+		expect(EPIC_MODE_BANNER).toContain('/swarm epic decide');
+		expect(EPIC_MODE_BANNER).toContain('/swarm epic calibration');
 	});
 
-	test('mandates surfacing divergence to the user when a task wrote outside scope', () => {
+	test('mandates surfacing divergence when a task wrote outside its declared scope', () => {
 		// Without this, per-task divergence is silent — the user only sees
 		// the activation decision, not the scope-discipline signal that
 		// drives the next threshold tightening.
-		expect(EPIC_MODE_BANNER).toContain('SURFACE divergence');
 		expect(EPIC_MODE_BANNER).toContain('summary.isClean: false');
 		expect(EPIC_MODE_BANNER).toContain('Divergence: task');
 	});
 
-	test('lists /swarm epic calibration as a visibility command', () => {
-		expect(EPIC_MODE_BANNER).toContain('/swarm epic calibration');
-	});
-
-	test('mandates declaring scope for every pending task BEFORE epic_run_phase (Step 0)', () => {
-		// Discovered live (fair-clinical-bench session): without upfront
-		// scope declaration, Lean Turbo's lane planner has no graph to
-		// dispatch and returns empty lanes/serializedTasks even on a
-		// promote verdict — the architect then falls back to serial
-		// per-task delegation and Epic's parallelization is invisible.
-		// Step 0 closes that gap.
+	test('mandates declaring scope upfront BEFORE the decision call', () => {
+		// Discovered live: without upfront scope declaration the lane
+		// planner has no graph and falls back to serial dispatch silently.
 		expect(EPIC_MODE_BANNER).toContain(
-			'DECLARE SCOPE for every pending task',
+			'Declare scope for every pending task in the phase',
 		);
-		expect(EPIC_MODE_BANNER).toContain('BEFORE calling `epic_run_phase`');
-		expect(EPIC_MODE_BANNER).toContain('lane planner reads task scopes');
+		expect(EPIC_MODE_BANNER).toContain('Declare ALL scopes BEFORE step 2');
 		// Must explicitly forbid the broken declare-as-you-go pattern.
 		expect(EPIC_MODE_BANNER).toContain(
-			'Do NOT declare scope task-by-task during execution',
+			'declaring task-by-task during execution is too late',
+		);
+	});
+
+	test('mandates Task dispatch (with all calls in ONE message for parallel execution)', () => {
+		// The point of the architect-led dispatch is opencode-tracked
+		// subagents the user can click into for live visibility.
+		expect(EPIC_MODE_BANNER).toContain('Dispatch each lane via the `Task` tool');
+		expect(EPIC_MODE_BANNER).toContain('ALL IN ONE MESSAGE');
+		expect(EPIC_MODE_BANNER).toContain('visible subagent');
+		expect(EPIC_MODE_BANNER).toContain(
+			'the only way to dispatch promoted phases',
 		);
 	});
 });

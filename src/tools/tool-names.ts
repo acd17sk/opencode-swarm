@@ -87,7 +87,8 @@ export type ToolName =
 	| 'lean_turbo_review'
 	| 'lean_turbo_run_phase'
 	| 'lean_turbo_status'
-	| 'epic_run_phase';
+	| 'epic_decide_phase'
+	| 'epic_record_divergence';
 
 /** Readonly array of all tool names */
 export const TOOL_NAMES: readonly ToolName[] = [
@@ -173,7 +174,8 @@ export const TOOL_NAMES: readonly ToolName[] = [
 	'lean_turbo_review',
 	'lean_turbo_run_phase',
 	'lean_turbo_status',
-	'epic_run_phase',
+	'epic_decide_phase',
+	'epic_record_divergence',
 ] as const;
 
 /** Set for O(1) tool name validation */

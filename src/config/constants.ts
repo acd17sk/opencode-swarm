@@ -293,7 +293,8 @@ export const AGENT_TOOL_MAP: Record<AgentName, ToolName[]> = {
 		'lean_turbo_review',
 		'lean_turbo_run_phase',
 		'lean_turbo_status',
-		'epic_run_phase',
+		'epic_decide_phase',
+		'epic_record_divergence',
 	],
 	explorer: [
 		'complexity_hotspots',
@@ -701,8 +702,10 @@ export const TOOL_DESCRIPTIONS: Partial<Record<ToolName, string>> = {
 		'Use when Lean Turbo is active and you want to execute all tasks in a phase in parallel lanes.',
 	lean_turbo_status:
 		'returns Lean Turbo configuration and active status for the current session',
-	epic_run_phase:
-		'Execute a phase under Epic Mode (Capability C). Computes the plan-wide coupling coefficient p, gates on the activation threshold + hot-module check + greenfield rule, and either dispatches Lean Turbo for parallel execution (when promoted) or returns a "demoted to serial" verdict. Use when /swarm epic is on for the session.',
+	epic_decide_phase:
+		'Compute the Epic Mode verdict for a phase WITHOUT dispatching Lean Turbo. Runs preflight + calibration + the three gates, persists the decision, and returns the verdict so the architect can dispatch lanes via the visible Task tool (promote) or fall back to per-task serial (demote). Pair with `lean_turbo_plan_lanes` to get the lane plan when promoted. Use when /swarm epic is on for the session.',
+	epic_record_divergence:
+		'After every `update_task_status(completed)`, record the task\'s declared-vs-actual divergence to .swarm/epic/divergence.jsonl. Feeds Epic Mode\'s self-calibration loop (Capability D). Best-effort: never blocks.',
 };
 
 // Runtime validation: ensure all tool names in AGENT_TOOL_MAP are registered
@@ -1011,56 +1014,53 @@ Do NOT skip phase reviewer/critic when configured. Degraded and serialized tasks
 
 export const EPIC_MODE_BANNER = `## 🧭 EPIC MODE ACTIVE
 
-**Epic Mode supersedes any Lean Turbo guidance you may have seen.** Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on — Epic Mode is the autonomous coupling-aware layer that decides per plan whether Lean Turbo runs at all.
+**Epic Mode is the autonomous coupling-aware execution layer.** It owns the parallel-vs-serial decision for every phase. Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on.
 
-Mandatory behavioral changes:
+### The phase-execution flow (mandatory, in order)
 
-**0. DECLARE SCOPE for every pending task in the phase BEFORE calling \`epic_run_phase\`.**
-Lean Turbo's lane planner reads task scopes (from \`.swarm/scopes/scope-{taskId}.json\` or from \`files_touched\` in \`plan.json\`) to compute parallel lanes. When scopes are empty, the planner has no graph to dispatch and returns empty lanes/serializedTasks — which means the promote verdict comes back with nothing actually parallelized. Before invoking \`epic_run_phase(phase=N)\`, call \`declare_scope\` once for every pending task in phase N, passing the exact file paths each task will touch (as listed in the architecture / plan). This is what unlocks Lean Turbo's lane planning. Do NOT declare scope task-by-task during execution — by then the planner has already run.
+For EVERY phase you execute, follow these six steps exactly. There is one path — no alternatives.
 
-**If \`epic_run_phase\` returns \`reason: "scopes-missing"\`**, the tool is telling you that one or more pending tasks lack scope data and it refused to dispatch. The response includes a \`missingScopes\` array of task ids. Resolution: call \`declare_scope\` for each missing task id with the correct file paths, then re-invoke \`epic_run_phase\`. Do not interpret this error as "Epic Mode decided to serialize" — Epic never even ran the decision; the preflight blocked it.
+**1. Declare scope for every pending task in the phase.**
+For each pending task in phase N, call \`declare_scope(taskId=X)\` with the exact file paths it will touch. The lane planner reads these scopes to compute parallel lanes; without them it has no graph and falls back to serial. Declare ALL scopes BEFORE step 2 — declaring task-by-task during execution is too late.
 
-**1. Use the TRANSPARENT decide-then-dispatch path so the user can see each coder agent's progress.**
-After all pending-task scopes for the phase are declared (step 0), the recommended flow is:
+**2. Compute the Epic Mode verdict.**
+Call \`epic_decide_phase(directory, phase=N, sessionID)\`. This runs preflight + calibration + p computation + the three gates (p-threshold, hot-module, greenfield), persists the verdict to \`.swarm/evidence/epic-promotions.jsonl\`, and returns one of:
+- \`reason: "decided"\` with \`verdict.decision === "promote"\` → continue to step 3
+- \`reason: "demoted"\` → skip to step 6 (per-task serial fallback)
+- \`reason: "scopes-missing"\` → the response includes a \`missingScopes\` array. Call \`declare_scope\` for each missing id, then re-invoke step 2. Do NOT interpret this as "Epic decided to serialize" — Epic never ran the decision; the preflight blocked it.
+- any other error reason → fix per the structured \`message\` and retry.
 
-  **a. Call \`epic_decide_phase(directory, phase=N, sessionID)\`** — fast (~2-5s). Computes p, runs the three gates (p-threshold, hot-module, greenfield), persists the verdict to \`.swarm/evidence/epic-promotions.jsonl\`. Returns one of:
-   - \`reason: "decided"\` with \`verdict.decision === "promote"\` → continue to step 1b
-   - \`reason: "demoted"\` → skip to step 4 (per-task serial fallback)
-   - \`reason: "scopes-missing"\` or other error → fix and retry per the structured message
-
-  **b. Call \`lean_turbo_plan_lanes(directory, phase=N, sessionID)\`** — returns the lane plan: \`[{laneId, taskIds, files}, ...]\`. This is the same plan Lean Turbo would compute internally; you're going to dispatch it yourself for visibility.
-
-  **c. Dispatch each lane via the \`Task\` tool, ALL IN ONE MESSAGE.** For each lane in the plan, issue: \`Task(subagent_type="coder", description="Phase N lane <laneId>", prompt="<prompt that includes the lane's task ids + scope + acceptance criteria>")\`. Issuing all Task calls in one assistant message means opencode runs them in parallel, AND each one is a visible subagent the user can click into to see thinking + tool calls + progress in real time.
-
-  **d. Wait for all Task calls to complete**, collect their results, then proceed to step 5 (record divergence per task).
-
-\`epic_run_phase\` (legacy unified tool) still works and does decide + dispatch in one call, but Lean Turbo's internal coder dispatch is opaque to the user's CLI — the user sees the tool "frozen" for minutes with no visibility into the parallel coder agents. Use the decide-then-dispatch path above for any phase you want the user to be able to observe.
-
-Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on — Epic owns the decision.
-
-**2. SURFACE the verdict to the user BEFORE proceeding.**
-After every \`epic_run_phase\` call, IMMEDIATELY show the user a one-line summary:
+**3. Surface the verdict to the user immediately, before any further action:**
 > Epic Mode: <DECISION> (p=<value>) — <one-sentence rationale or top blocking reason>
 
-Then continue per the verdict. The verdict is the user's only visibility into what Epic is doing — silence here makes the mode invisible. If the user is going to spend time per task you must tell them why up front.
+The verdict is the user's only visibility into what Epic is doing — silence here makes the mode invisible. If you're going to spend time on this phase, tell the user why up front.
 
-**3. On a "demoted" verdict, fall back to the standard per-task serial flow** for that phase (delegate to coder, run Stage B per task, etc.). Do not attempt to invoke \`lean_turbo_run_phase\` after a demote — Epic has already decided this plan is too coupled to parallelize safely.
+**4. Get the lane plan.**
+Call \`lean_turbo_plan_lanes(directory, phase=N, sessionID)\`. Returns \`[{laneId, taskIds, files}, ...]\` — the partition the lane planner computed from the scope graph.
 
-**4. On a "promoted" verdict, the tool already ran Lean Turbo** for that phase; the result includes \`lanes\`, \`degradedTasks\`, \`serializedTasks\` just like \`lean_turbo_run_phase\` would have produced. Phase reviewer + critic are still required at \`phase_complete\` per Lean Turbo's existing rules.
+**5. Dispatch each lane via the \`Task\` tool, ALL IN ONE MESSAGE.**
+For each lane in the plan, issue:
+\`Task(subagent_type="coder", description="Phase N lane <laneId>", prompt="<prompt that includes the lane's task ids + scope + acceptance criteria>")\`
+Issue all Task calls in ONE assistant message so opencode runs them in parallel AND each appears as a visible subagent the user can click into to watch thinking + tool calls + progress live. **This is the only way to dispatch promoted phases.** Do not invoke \`lean_turbo_run_phase\` and do not bundle the dispatch into another tool — visibility requires Task.
 
-**5. After every \`update_task_status(task_id, status="completed")\` call, also call \`epic_record_divergence(directory, taskId, sessionID)\`.** This feeds the calibration loop (Capability D) — it compares the task's declared scope against the files the coder actually wrote, and the next \`epic_run_phase\` uses the history to auto-tighten the activation threshold and grow the hot-module list. The call is best-effort and never blocks; missing it just costs one observation.
+Wait for all Task calls to complete, then proceed to step 6.
 
-**6. SURFACE divergence to the user when a task wrote outside its declared scope.** If \`epic_record_divergence\` returns \`summary.isClean: false\`, IMMEDIATELY show the user a one-line summary:
+**6. After EACH task transitions to \`completed\` (via \`update_task_status\`), call \`epic_record_divergence(directory, taskId, sessionID)\`.**
+This feeds the calibration loop (Capability D) — it compares the task's declared scope against the files the coder actually wrote. The next phase's \`epic_decide_phase\` will read these records and auto-tighten the activation threshold + grow the hot-module list if divergence was observed. Best-effort: never blocks; missing it just costs one observation.
+
+If \`epic_record_divergence\` returns \`summary.isClean: false\`, immediately surface to the user:
 > Divergence: task \`<taskId>\` wrote \`<undeclaredCount>\` undeclared file(s) (ratio \`<divergenceRatio>\`)
 
-This is the user's signal that scope discipline slipped on that task — and the reason the activation threshold may tighten on the next phase. Clean tasks (isClean: true) don't need a surface — they're the expected baseline.
+Clean tasks (\`isClean: true\`) don't need a surface — that's the expected baseline.
 
-Audit & visibility (always-on pulls, no architect mediation):
-- Each \`epic_run_phase\` invocation appends one record to \`.swarm/evidence/epic-promotions.jsonl\` with the verdict and rationale.
-- \`/swarm epic status\` shows the session's most recent decision.
-- \`/swarm epic last\` shows the most recent decision from the durable evidence log.
-- \`/swarm epic decide\` previews the verdict without dispatching.
-- \`/swarm epic calibration\` shows the calibration state: learned threshold (vs. static), hot-module additions, consecutive-clean counter, and the recent divergent tasks that drove the threshold there.
+### Phase-complete gate
 
-Do NOT skip phase reviewer/critic. Epic Mode does not change Stage B requirements — it only chooses whether to parallelize.
+Phase reviewer + critic are still required at \`phase_complete\`. Epic Mode does not change Stage B requirements — it only chooses whether to parallelize.
+
+### Audit & visibility (always-on pulls — no architect mediation needed)
+
+- \`/swarm epic status\` — session's most recent decision.
+- \`/swarm epic last\` — most recent decision from the durable evidence log.
+- \`/swarm epic decide\` — preview the verdict without dispatching.
+- \`/swarm epic calibration\` — current calibration state: learned threshold, hot-module additions, consecutive-clean counter, recent divergent tasks.
 `;

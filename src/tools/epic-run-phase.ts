@@ -451,31 +451,17 @@ export async function executeEpicRunPhase(
 	};
 }
 
-export const epic_run_phase: ToolDefinition = createSwarmTool({
-	description:
-		'Execute a phase under Epic Mode (Capability C) — LEGACY UNIFIED PATH. Computes p, decides promote/demote, and dispatches Lean Turbo all in one call. Lean Turbo\'s internal coder dispatch is opaque to the architect\'s CLI; for visible per-lane progress, prefer `epic_decide_phase` + the architect\'s own Task dispatch (see EPIC_MODE_BANNER). Use only when /swarm epic is on for the session.',
-	args: {
-		directory: z.string().describe('Project root directory'),
-		phase: z.number().int().positive().describe('Phase number to execute'),
-		sessionID: z.string().describe('Active session ID'),
-	},
-	execute: async (args: unknown, _directory: string, ctx) => {
-		const { phase, sessionID: argSessionID } = args as EpicRunPhaseArgs;
-		const sessionID =
-			ctx?.sessionID && ctx.sessionID.length > 0
-				? ctx.sessionID
-				: argSessionID;
-		return JSON.stringify(
-			await executeEpicRunPhase({
-				phase,
-				sessionID,
-				directory: _directory,
-			}),
-			null,
-			2,
-		);
-	},
-});
+/**
+ * NOTE: `epic_run_phase` is intentionally NOT exposed as a tool to the
+ * architect. The transparent decide-then-dispatch path (epic_decide_phase
+ * + lean_turbo_plan_lanes + Task dispatch) is the ONLY supported flow,
+ * because it gives the user real-time visibility into the parallel coder
+ * agents. The legacy unified-path function `executeEpicRunPhase` remains
+ * exported for tests and any composition users, but no ToolDefinition
+ * wraps it — so the architect cannot call it and accidentally fall back
+ * to the opaque path. This is a deliberate product decision: one path,
+ * unambiguous, always-visible.
+ */
 
 /**
  * Transparent decide-only tool. Returns the verdict (promote/demote/error)

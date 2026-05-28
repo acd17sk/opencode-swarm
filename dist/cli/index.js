@@ -16535,7 +16535,8 @@ var init_tool_names = __esm(() => {
     "lean_turbo_review",
     "lean_turbo_run_phase",
     "lean_turbo_status",
-    "epic_run_phase"
+    "epic_decide_phase",
+    "epic_record_divergence"
   ];
   TOOL_NAME_SET = new Set(TOOL_NAMES);
 });
@@ -16796,7 +16797,8 @@ var init_constants = __esm(() => {
       "lean_turbo_review",
       "lean_turbo_run_phase",
       "lean_turbo_status",
-      "epic_run_phase"
+      "epic_decide_phase",
+      "epic_record_divergence"
     ],
     explorer: [
       "complexity_hotspots",
@@ -17096,7 +17098,8 @@ var init_constants = __esm(() => {
     lean_turbo_review: "dispatch a read-only reviewer agent to evaluate a completed Lean Turbo phase",
     lean_turbo_run_phase: "Execute a phase using Lean Turbo parallel lane execution. " + "Plans lanes, acquires file locks, and dispatches coder agents concurrently. " + "Use when Lean Turbo is active and you want to execute all tasks in a phase in parallel lanes.",
     lean_turbo_status: "returns Lean Turbo configuration and active status for the current session",
-    epic_run_phase: 'Execute a phase under Epic Mode (Capability C). Computes the plan-wide coupling coefficient p, gates on the activation threshold + hot-module check + greenfield rule, and either dispatches Lean Turbo for parallel execution (when promoted) or returns a "demoted to serial" verdict. Use when /swarm epic is on for the session.'
+    epic_decide_phase: "Compute the Epic Mode verdict for a phase WITHOUT dispatching Lean Turbo. Runs preflight + calibration + the three gates, persists the decision, and returns the verdict so the architect can dispatch lanes via the visible Task tool (promote) or fall back to per-task serial (demote). Pair with `lean_turbo_plan_lanes` to get the lane plan when promoted. Use when /swarm epic is on for the session.",
+    epic_record_divergence: "After every `update_task_status(completed)`, record the task's declared-vs-actual divergence to .swarm/epic/divergence.jsonl. Feeds Epic Mode's self-calibration loop (Capability D). Best-effort: never blocks."
   };
   for (const [agentName, tools] of Object.entries(AGENT_TOOL_MAP)) {
     const invalidTools = tools.filter((tool) => !TOOL_NAME_SET.has(tool));
