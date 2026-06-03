@@ -15,6 +15,7 @@ import { handleCouplingCommand } from './coupling.js';
 import { handleCurateCommand } from './curate.js';
 import { handleDarkMatterCommand } from './dark-matter.js';
 import { handleDeepDiveCommand } from './deep-dive.js';
+import { handleDesignDocsCommand } from './design-docs.js';
 import { handleDiagnoseCommand } from './diagnose.js';
 import { handleDoctorCommand, handleDoctorToolsCommand } from './doctor.js';
 import { handleEpicCommand } from './epic.js';
@@ -616,6 +617,22 @@ export const COMMAND_REGISTRY = {
 		category: 'agent',
 		aliasOf: 'deep-dive',
 	},
+	'design-docs': {
+		handler: async (ctx) => handleDesignDocsCommand(ctx.directory, ctx.args),
+		description:
+			'Generate or sync language-agnostic design docs (domain, technical-spec, behavior-spec, reference/) for the project under build [description]',
+		args: '<description> [--out <dir>] [--lang <name>] [--update]',
+		details:
+			'Triggers the architect to enter MODE: DESIGN_DOCS — delegates to the docs_design agent to author/sync docs/domain.md, docs/technical-spec.md, docs/behavior-spec.md, and docs/reference/* (plus reference/traceability.json and design-changelog.md). Normative docs are 100% language-agnostic; all framework-specific material is quarantined under reference/. --update syncs existing docs to current code/spec instead of generating fresh. Requires design_docs.enabled: true.',
+		category: 'agent',
+	},
+	'design docs': {
+		handler: async (ctx) => handleDesignDocsCommand(ctx.directory, ctx.args),
+		description: 'Alias for /swarm design-docs — generate or sync design docs',
+		args: '<description> [--out <dir>] [--lang <name>] [--update]',
+		category: 'agent',
+		aliasOf: 'design-docs',
+	},
 	issue: {
 		handler: async (ctx) => handleIssueCommand(ctx.directory, ctx.args),
 		description:
@@ -705,7 +722,7 @@ export const COMMAND_REGISTRY = {
 			'  turbo lean off     — disable Lean Turbo\n' +
 			'  turbo lean         — toggle Lean Turbo on/off\n' +
 			'  turbo standard on  — force standard turbo (disables lean even if config says lean)\n' +
-			'  turbo standard off — disable standard turbo (falls back to lean if config strategy is lean)\n' +
+			'  turbo standard off — disable all turbo modes (standard + lean)\n' +
 			'  turbo epic on      — enable Lean Turbo + Epic Mode together (autonomous decision)\n' +
 			'  turbo epic off     — disable both Lean Turbo and Epic Mode\n' +
 			'  turbo epic         — toggle Epic Mode (+ Lean Turbo) on/off\n' +

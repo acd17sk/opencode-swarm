@@ -177,6 +177,7 @@ All directive language (must, should, needs, verdict, review needed, dead) was r
 - Documentation synthesizer
 - Automatically updates READMEs, API docs, and guides based on implementation changes
 - Runs in Phase 6 as part of project wrap-up
+- **`docs_design` role variant** (opt-in via `design_docs.enabled`, issue #1080): the same agent in a design-doc-author role. Generates/syncs language-agnostic design docs (`domain.md`, `technical-spec.md`, `behavior-spec.md`, `reference/*`) for the project under build via `/swarm design-docs` (`MODE: DESIGN_DOCS`). A deterministic, fail-open per-phase drift check (`src/hooks/design-doc-drift.ts`) writes `.swarm/doc-drift-phase-N.json` and advises a sync when docs fall behind code/spec.
 
 ---
 
@@ -200,8 +201,12 @@ Is .swarm/plan.md present?
 Is the user request clear?
 ├── YES → Proceed to Phase 2
 │
-└── NO  → Ask up to 3 clarifying questions
-          Wait for answers
+└── NO  → Run clarification funnel:
+          1. Inventory all uncertainties (no cap)
+          2. Classify each (self_resolved / critic_resolved /
+             research_needed / user_decision / deferred_nonblocking)
+          3. Consult critic_sounding_board
+          4. Surface only surviving decisions as packet
           Then proceed
 ```
 
@@ -377,20 +382,26 @@ All tasks in phase done
 │         - .swarm/evidence/{phase}/drift-verifier.json (written by @critic_drift_verifier)
 │         - .swarm/evidence/{phase}/hallucination-guard.json (if hallucination_guard enabled; written by write_hallucination_evidence)
 │         - .swarm/evidence/{phase}/mutation-gate.json (if mutation_test enabled; written by write_mutation_evidence after generate_mutants + mutation_test)
+│         - .swarm/evidence/{phase}/phase-council.json (if council_mode enabled; written by submit_phase_council_verdicts)
+│         - .swarm/evidence/{phase}/architecture-supervisor.json (if architectural_supervision enabled; written by write_architecture_supervisor_evidence)
+│         - .swarm/evidence/final-council.json (if final_council enabled; written by write_final_council_evidence, last phase only)
 │         If either missing: run the missing gate first
-│         Note: All gates automatically bypassed in turbo mode
-├── 6. Call phase_complete (enforces four phase gates automatically)
+│         Note: Gates 1–5 bypassed in turbo mode; architecture-supervisor and final-council are never bypassed
+├── 6. Call phase_complete (enforces up to seven gates automatically)
 │         - Gate 1: completion-verify — deterministic identifier check in source files
 │         - Gate 2: drift verifier evidence — reads drift-verifier.json for approved verdict
 │         - Gate 3: hallucination guard — reads hallucination-guard.json for approved verdict (if enabled)
 │         - Gate 4: mutation gate — reads mutation-gate.json for pass/warn/fail verdict (if enabled)
-│         - All four gates bypassed when turbo mode is active
+│         - Gate 5: phase council — reads phase-council.json for approved verdict (if council_mode enabled)
+│         - Gate 5b: architecture supervisor — reads architecture-supervisor.json (if enabled, never turbo-bypassed)
+│         - Gate 6: final council — reads final-council.json for approved verdict (if final_council enabled, last phase only, never turbo-bypassed)
+│         - Gates 1–5 bypassed when turbo mode is active; Gates 5b and 6 are never bypassed
 └── 7. Ask user: "Ready for Phase [N+1]?"
 ```
 
-### Phase Completion Gates (v6.33.4)
+### Phase Completion Gates
 
-The `phase_complete` tool enforces two mandatory gates before marking a phase complete:
+The `phase_complete` tool enforces up to seven gates before marking a phase complete. Gates 1–5 and phase council are turbo-bypassed; architecture supervisor and final council are never turbo-bypassed.
 
 | Gate | Purpose | Blocking Reason | Turbo Bypass |
 |------|---------|-----------------|--------------|
@@ -398,6 +409,9 @@ The `phase_complete` tool enforces two mandatory gates before marking a phase co
 | `drift-verifier` | Evidence-based check that `critic_drift_verifier` approved the implementation | `DRIFT_VERIFICATION_MISSING` or `DRIFT_VERIFICATION_REJECTED` | Yes |
 | `hallucination-guard` | Evidence-based check that `critic_hallucination_verifier` approved plan/implementation claims | `HALLUCINATION_VERIFICATION_MISSING` or `HALLUCINATION_VERIFICATION_REJECTED` | Yes |
 | `mutation-test` | Evidence-based check that mutation tests achieved a passing kill rate | `MUTATION_GATE_MISSING` or `MUTATION_GATE_FAIL` | Yes |
+| `phase-council` | Evidence-based check that `submit_phase_council_verdicts` ran and approved | `PHASE_COUNCIL_REQUIRED` — no approved phase-council evidence | Yes |
+| `architecture-supervisor` (5b) | Evidence-based check that `critic_architecture_supervisor` approved cross-task coherence | `ARCHITECTURE_SUPERVISION_BLOCKED` | **No** |
+| `final-council` (Gate 6) | Evidence-based check that `write_final_council_evidence` approved project completion | `FINAL_COUNCIL_REQUIRED` — no approved final-council evidence | **No** |
 
 **Gate 1: Completion Verify**
 - Parses plan task descriptions for identifiers (backtick, camelCase, PascalCase, config keys)
@@ -432,7 +446,7 @@ The `phase_complete` tool enforces two mandatory gates before marking a phase co
 - **Expensive**: requires one LLM call per mutation phase due to LLM-based patch generation; OFF by default to avoid cost on all projects
 
 **Turbo Mode Behavior:**
-When `hasActiveTurboMode()` returns true, all four gates are automatically bypassed (completion-verify, drift-verifier, hallucination-guard, mutation-test). The `phase_complete` tool logs a warning and proceeds without enforcement.
+When `hasActiveTurboMode()` returns true, Gates 1–5 (completion-verify, drift-verifier, hallucination-guard, mutation-test, phase-council) are automatically bypassed. The `phase_complete` tool logs a warning and proceeds without enforcement. Gate 5b (architecture supervisor) and Gate 6 (final council) are **never** turbo-bypassed — enabling `architectural_supervision.mode === 'gate'` or `final_council` is an explicit opt-in to a hard quality check.
 
 ---
 

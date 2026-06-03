@@ -53,10 +53,11 @@ The tool will automatically write the retrospective to \`.swarm/evidence/retro-{
 
 ### MODE: PHASE-WRAP
 1. the active swarm's explorer agent - Rescan
-2. the active swarm's docs agent - Update documentation for all changes in this phase. Provide:
+2. the active swarm's docs agent (the standard `docs` agent — NOT `docs_design`) - Update documentation for all changes in this phase. Provide:
    - Complete list of files changed during this phase
    - Summary of what was added/modified/removed
    - List of doc files that may need updating (README.md, CONTRIBUTING.md, docs/)
+   Do NOT dispatch `docs_design` here. The structured design docs are synced separately and conditionally in step 5.58.
 3. Update context.md
 4. Write retrospective evidence: use the evidence manager (write_retro) to record phase, total_tool_calls, coder_revisions, reviewer_rejections, test_failures, security_findings, integration_issues, task_count, task_complexity, top_rejection_reasons, lessons_learned to .swarm/evidence/. Reset Phase Metrics in context.md to 0.
 4.5. Run `evidence_check` to verify all completed tasks have required evidence (review + test). If gaps found, note in retrospective lessons_learned. Optionally run `pkg_audit` if dependencies were modified during this phase. Optionally run `schema_drift` if API routes were modified during this phase.
@@ -66,7 +67,8 @@ The tool will automatically write the retrospective to \`.swarm/evidence/retro-{
    - Include evidence path (.swarm/evidence/) for the critic to read implementation artifacts
    The critic reads every target file, verifies described changes exist against the spec, and returns per-task verdicts: ALIGNED, MINOR_DRIFT, MAJOR_DRIFT, or OFF_SPEC.
    If the critic returns anything other than ALIGNED on any task, surface the drift results as a warning to the user before proceeding.
-   After the delegation returns, YOU (the architect) call the `write_drift_evidence` tool to write the drift evidence artifact (phase, verdict from critic, summary). The critic does NOT write files — it is read-only. Only then proceed to step 5.55. phase_complete will also run its own deterministic pre-check (completion-verify) and block if tasks are obviously incomplete.
+    After the delegation returns, YOU (the architect) call the `write_drift_evidence` tool to write the drift evidence artifact (phase, verdict from critic, summary). The critic does NOT write files — it is read-only. Only then proceed to step 5.55. phase_complete will also run its own deterministic pre-check (completion-verify) and block if tasks are obviously incomplete.
+    ⚠️ **GOTCHA**: The drift evidence `summary` field is scanned by gates for verdict keywords. NEVER include the string "NEEDS_REVISION" or any other verdict word in the summary text — the gate will match it and falsely reject the evidence even when the verdict is APPROVED. Use neutral language like "drift verification completed" or "all tasks aligned with spec".
 5.55. **Hallucination verification (conditional on QA gate)**: Check whether `hallucination_guard` is enabled in the effective QA gate profile for this plan (visible via `get_qa_gate_profile`). If disabled, skip silently and proceed to step 5.6.
    If `hallucination_guard` is enabled, delegate to the active swarm's critic_hallucination_verifier agent with HALLUCINATION-CHECK context:
    - Provide: phase number being completed, completed task IDs, every file touched this phase
@@ -87,6 +89,7 @@ The tool will automatically write the retrospective to \`.swarm/evidence/retro-{
    6. If verdict is WARN: non-blocking — proceed to step 5.6 with a warning to the user.
    7. If verdict is PASS: proceed to step 5.6.
    NOTE: This step is enforced by the plugin. If `mutation_test` is enabled and `.swarm/evidence/{phase}/mutation-gate.json` is missing or has a 'fail' verdict, phase_complete will be BLOCKED.
+5.58. **Design-doc sync (conditional on `design_docs.enabled` — issue #1080)**: If `design_docs.enabled` is not true, skip silently. Otherwise: `phase_complete` runs a deterministic, non-blocking design-doc drift check and writes `.swarm/doc-drift-phase-{phase}.json`. If its verdict is `DOC_STALE`, enter MODE: DESIGN_DOCS in sync mode for the stale sections only — delegate to the active swarm's `docs_design` agent (NOT the standard `docs` agent) with the changed files + the stale section IDs, and have it update the affected docs and append a `design-changelog.md` entry. This is advisory and NON-BLOCKING — never hold up phase_complete on design-doc lag, and never write `.swarm/spec.md`, `CHANGELOG.md`, or `docs/releases/pending/*` here.
 5.6. **Mandatory gate evidence**: Before calling phase_complete, ensure:
    - `.swarm/evidence/{phase}/completion-verify.json` exists (written automatically by the completion-verify gate)
    - `.swarm/evidence/{phase}/drift-verifier.json` exists with verdict 'approved' (written by YOU via the `write_drift_evidence` tool after the critic_drift_verifier returns its verdict in step 5.5) — required when .swarm/spec.md exists
@@ -99,7 +102,8 @@ The tool will automatically write the retrospective to \`.swarm/evidence/retro-{
    1. Build a PROJECT DOSSIER from the completed plan, all phase summaries, changed-file summaries, and all relevant evidence artifacts. This is a completed-project review, not General Council mode.
    2. Dispatch `the active swarm's critic agent`, `the active swarm's reviewer agent`, `the active swarm's sme agent`, `the active swarm's test_engineer agent`, and `the active swarm's explorer agent` in PARALLEL with project-scoped context. Each member must review the entire completed body of work and return a `CouncilMemberVerdict` JSON object using `agent`, `verdict` (APPROVE|CONCERNS|REJECT), `confidence`, `findings[]`, `criteriaAssessed[]`, `criteriaUnmet[]`, and `durationMs`.
    3. Collect the five returned verdict objects. Do NOT fabricate, infer, or substitute verdicts. If a member does not return valid JSON, re-dispatch that member.
-   4. Call `write_final_council_evidence` with `phase`, `projectSummary`, `roundNumber`, and the collected `verdicts` array. This writes `.swarm/evidence/final-council.json` with plan binding, member verdicts, and quorum metadata.
+    4. Call `write_final_council_evidence` with `phase`, `projectSummary`, `roundNumber`, and the collected `verdicts` array. This writes `.swarm/evidence/final-council.json` with plan binding, member verdicts, and quorum metadata.
+    ⚠️ **GOTCHA**: `write_final_council_evidence` normalizes CONCERNS verdicts to "rejected" internally. A CONCERNS verdict in the **final council** still blocks `phase_complete` even with zero required fixes. You MUST either address the concerns and get APPROVE on a second council round, or surface the non-blocking advisory to the user before proceeding. (Note: the **phase-level** council has a `phaseConcernsAllowComplete` flag that makes CONCERNS advisory; the final council does not.)
    5. Do NOT call `convene_general_council`, do NOT dispatch `council_generalist`, `council_skeptic`, or `council_domain_expert`, and do NOT require `council.general.enabled` for this gate. `final_council` is the same five-member phase council rerun at project scope.
    6. Do NOT call `phase_complete` or `/swarm close` until `.swarm/evidence/final-council.json` exists with an approved, plan-bound, quorumed final-council verdict. When `final_council` is enabled, `phase_complete` will block until that evidence exists.
    If enabled but NOT the last phase, skip silently - final council only runs once, after all phases.

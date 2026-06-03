@@ -19,12 +19,12 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.3.13"
       - name: Cache bun dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -41,6 +41,9 @@ jobs:
       - name: Engineering invariant checks
         shell: bash
         run: chmod +x scripts/check-invariants.sh && bash scripts/check-invariants.sh
+      - name: Cross-contamination check (mock.module / vi.mock leaks)
+        shell: bash
+        run: chmod +x scripts/check-cross-contamination.sh && bash scripts/check-cross-contamination.sh
 
   unit:
     needs: quality
@@ -51,13 +54,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.3.13"
       - name: Cache bun dependencies
         id: cache-bun
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -135,7 +138,7 @@ jobs:
         shell: bash
         run: |
           failed=0
-          for f in tests/unit/hooks/knowledge-injector*.test.ts; do
+          for f in tests/unit/hooks/knowledge-injector.test.ts tests/unit/hooks/knowledge-injector-allowlist.test.ts tests/unit/hooks/knowledge-injector-drift.test.ts; do
             [ -f "$f" ] || continue
             if ! bun --smol test "$f" --timeout 120000; then
               failed=1
@@ -146,10 +149,46 @@ jobs:
         shell: bash
         run: |
           failed=0
-          for f in tests/unit/hooks/knowledge-curator*.test.ts; do
+          for f in tests/unit/hooks/knowledge-curator.test.ts tests/unit/hooks/knowledge-curator-evidence-curation.test.ts tests/unit/hooks/knowledge-curator-evidence-predicate.test.ts tests/unit/hooks/knowledge-curator-outcome-promotion.test.ts tests/unit/hooks/knowledge-curator-output.test.ts tests/unit/hooks/knowledge-curator-ttl.test.ts; do
             [ -f "$f" ] || continue
             if ! bun --smol test "$f" --timeout 120000; then
               failed=1
+            fi
+          done
+          exit $failed
+      - name: Unit tests (hooks - mock.module isolation)
+        shell: bash
+        run: |
+          set -o pipefail
+          IFS=$'\n'
+          failed=0
+          tmpdir="${RUNNER_TEMP:-${TEMP:-/tmp}}"
+          trap 'rm -f "$tmpdir"/bun-out-$$-*' EXIT
+          for f in \
+            tests/unit/hooks/knowledge-injector.adversarial.test.ts \
+            tests/unit/hooks/knowledge-curator.test.ts \
+            tests/unit/hooks/knowledge-curator-evidence-curation.test.ts \
+            tests/unit/hooks/knowledge-curator-ttl.test.ts \
+            tests/unit/hooks/knowledge-curator.adversarial.test.ts \
+            tests/unit/hooks/knowledge-curator-output.test.ts \
+            tests/unit/hooks/full-auto-intercept.test.ts \
+            tests/unit/hooks/full-auto-intercept.adversarial.test.ts \
+            tests/unit/hooks/full-auto-intercept.dispatch.test.ts \
+            tests/unit/hooks/utils.test.ts \
+            tests/unit/hooks/system-enhancer-coder-context.test.ts \
+            tests/unit/hooks/model-limits-log-reclassification.test.ts \
+            tests/unit/hooks/model-limits-adversarial.test.ts \
+            tests/unit/hooks/log-level-reclassification.test.ts \
+            tests/unit/hooks/context-budget-log-reclassification.test.ts; do
+            [ -f "$f" ] || continue
+            tmp="$tmpdir/bun-out-$$-${f##*/}"
+            exit_code=0
+            bun --smol test "$f" --timeout 120000 > "$tmp" 2>&1 || exit_code=$?
+            if [ $exit_code -ne 0 ]; then
+              if grep -qE "^[[:space:]]*(FAIL|✗|AssertionError)" "$tmp"; then
+                echo "::error file=$f::FAILED: $f"
+                failed=1
+              fi
             fi
           done
           exit $failed
@@ -190,7 +229,7 @@ jobs:
         shell: bash
         run: |
           failed=0
-          for f in tests/unit/hooks/system-enhancer-adversarial.attack.test.ts tests/unit/hooks/system-enhancer-adversarial.test.ts tests/unit/hooks/system-enhancer-coder-context.test.ts tests/unit/hooks/system-enhancer-compaction.test.ts tests/unit/hooks/system-enhancer-context-budget-wiring.test.ts tests/unit/hooks/system-enhancer-drift.test.ts tests/unit/hooks/system-enhancer-evidence.adversarial.test.ts tests/unit/hooks/system-enhancer-evidence.test.ts tests/unit/hooks/system-enhancer-handoff.test.ts tests/unit/hooks/system-enhancer-hf1b-adversarial.test.ts tests/unit/hooks/system-enhancer-hf1b.test.ts tests/unit/hooks/system-enhancer-lang-constraints-adversarial.test.ts tests/unit/hooks/system-enhancer-lang-constraints.test.ts tests/unit/hooks/system-enhancer-retro.test.ts tests/unit/hooks/system-enhancer-reviewer-checklist-adversarial.test.ts tests/unit/hooks/system-enhancer-reviewer-checklist.test.ts tests/unit/hooks/system-enhancer-test-constraints.test.ts tests/unit/hooks/system-enhancer-v6.test.ts tests/unit/hooks/system-enhancer-v61.test.ts tests/unit/hooks/system-enhancer-v62-adversarial.test.ts tests/unit/hooks/system-enhancer-v62.test.ts tests/unit/hooks/system-enhancer.test.ts; do
+          for f in tests/unit/hooks/system-enhancer-adversarial.attack.test.ts tests/unit/hooks/system-enhancer-adversarial.test.ts tests/unit/hooks/system-enhancer-compaction.test.ts tests/unit/hooks/system-enhancer-context-budget-wiring.test.ts tests/unit/hooks/system-enhancer-drift.test.ts tests/unit/hooks/system-enhancer-evidence.adversarial.test.ts tests/unit/hooks/system-enhancer-evidence.test.ts tests/unit/hooks/system-enhancer-handoff.test.ts tests/unit/hooks/system-enhancer-hf1b-adversarial.test.ts tests/unit/hooks/system-enhancer-hf1b.test.ts tests/unit/hooks/system-enhancer-lang-constraints-adversarial.test.ts tests/unit/hooks/system-enhancer-lang-constraints.test.ts tests/unit/hooks/system-enhancer-retro.test.ts tests/unit/hooks/system-enhancer-reviewer-checklist-adversarial.test.ts tests/unit/hooks/system-enhancer-reviewer-checklist.test.ts tests/unit/hooks/system-enhancer-test-constraints.test.ts tests/unit/hooks/system-enhancer-v6.test.ts tests/unit/hooks/system-enhancer-v61.test.ts tests/unit/hooks/system-enhancer-v62-adversarial.test.ts tests/unit/hooks/system-enhancer-v62.test.ts tests/unit/hooks/system-enhancer.test.ts; do
             [ -f "$f" ] || continue
             if ! bun --smol test "$f" --timeout 120000; then
               failed=1
@@ -227,7 +266,156 @@ jobs:
           failed=0
           tmpdir="${RUNNER_TEMP:-${TEMP:-/tmp}}"
           trap 'rm -f "$tmpdir"/bun-out-$$-*' EXIT
-          for f in tests/unit/hooks/advisory*.test.ts tests/unit/hooks/agent*.test.ts tests/unit/hooks/co-change*.test.ts tests/unit/hooks/compaction*.test.ts tests/unit/hooks/context*.test.ts tests/unit/hooks/dark*.test.ts tests/unit/hooks/extractors*.test.ts tests/unit/hooks/full-auto*.test.ts tests/unit/hooks/gate*.test.ts tests/unit/hooks/log*.test.ts tests/unit/hooks/message*.test.ts tests/unit/hooks/mode-*.test.ts tests/unit/hooks/model*.test.ts tests/unit/hooks/phase*.test.ts tests/unit/hooks/pipeline*.test.ts tests/unit/hooks/plan*.test.ts tests/unit/hooks/review-receipt*.test.ts tests/unit/hooks/self*.test.ts tests/unit/hooks/steering*.test.ts tests/unit/hooks/system-message*.test.ts tests/unit/hooks/telemetry-guardrails*.test.ts tests/unit/hooks/tool*.test.ts tests/unit/hooks/trajectory*.test.ts tests/unit/hooks/utils*.test.ts; do
+          for f in \
+            tests/unit/hooks/adversarial-detection-schema.adversarial.test.ts \
+            tests/unit/hooks/adversarial-detector-adversarial.test.ts \
+            tests/unit/hooks/adversarial-detector-pattern-attack.test.ts \
+            tests/unit/hooks/adversarial-detector-patterns.test.ts \
+            tests/unit/hooks/adversarial-detector-spiral-handler.test.ts \
+            tests/unit/hooks/adversarial-detector-task1-2.test.ts \
+            tests/unit/hooks/adversarial-detector-wiring.test.ts \
+            tests/unit/hooks/adversarial-detector.test.ts \
+            tests/unit/hooks/advisory-injection.test.ts \
+            tests/unit/hooks/agent-activity-adversarial.test.ts \
+            tests/unit/hooks/agent-activity-atomic-write.test.ts \
+            tests/unit/hooks/agent-activity.test.ts \
+            tests/unit/hooks/co-change-suggester-adversarial.test.ts \
+            tests/unit/hooks/co-change-suggester.test.ts \
+            tests/unit/hooks/compaction-customizer.test.ts \
+            tests/unit/hooks/context-budget.test.ts \
+            tests/unit/hooks/context-scoring.test.ts \
+            tests/unit/hooks/curator-atomic-write.test.ts \
+            tests/unit/hooks/curator-auto-retire.test.ts \
+            tests/unit/hooks/curator-coverage.test.ts \
+            tests/unit/hooks/curator-drift.test.ts \
+            tests/unit/hooks/curator-llm-factory.test.ts \
+            tests/unit/hooks/curator-role-normalization.test.ts \
+            tests/unit/hooks/curator-structured-blocks.test.ts \
+            tests/unit/hooks/curator.adversarial.test.ts \
+            tests/unit/hooks/curator.test.ts \
+            tests/unit/hooks/dark-matter-detector-adversarial.test.ts \
+            tests/unit/hooks/dark-matter-detector.test.ts \
+            tests/unit/hooks/delegation-gate-completion-gate.test.ts \
+            tests/unit/hooks/delegation-gate-council-fallback.test.ts \
+            tests/unit/hooks/delegation-gate-council-phase.test.ts \
+            tests/unit/hooks/delegation-gate-council.test.ts \
+            tests/unit/hooks/delegation-gate-envelope.test.ts \
+            tests/unit/hooks/delegation-gate-evidence-taskid.test.ts \
+            tests/unit/hooks/delegation-gate-plan-aware-filtering.test.ts \
+            tests/unit/hooks/delegation-gate-prior-coder.test.ts \
+            tests/unit/hooks/delegation-gate-reviewer-run.test.ts \
+            tests/unit/hooks/delegation-gate-scope.test.ts \
+            tests/unit/hooks/delegation-gate-stale-state.test.ts \
+            tests/unit/hooks/delegation-gate-state-machine.adversarial.test.ts \
+            tests/unit/hooks/delegation-gate-task-1-5.test.ts \
+            tests/unit/hooks/delegation-gate-tests-run.test.ts \
+            tests/unit/hooks/delegation-gate.adversarial.test.ts \
+            tests/unit/hooks/delegation-gate.directory-security.test.ts \
+            tests/unit/hooks/delegation-gate.evidence-task-id.test.ts \
+            tests/unit/hooks/delegation-gate.stage-b-parallel.adversarial.test.ts \
+            tests/unit/hooks/delegation-gate.test.ts \
+            tests/unit/hooks/delegation-sanitizer.test.ts \
+            tests/unit/hooks/delegation-tracker.adversarial.test.ts \
+            tests/unit/hooks/delegation-tracker.test.ts \
+            tests/unit/hooks/destructive-command-guard.test.ts \
+            tests/unit/hooks/destructive-command-lstat.test.ts \
+            tests/unit/hooks/destructive-command-swarm-cli-bypass.test.ts \
+            tests/unit/hooks/destructive-command-windows.test.ts \
+            tests/unit/hooks/destructive-command-wrapper-unwrap.test.ts \
+            tests/unit/hooks/extractors.test.ts \
+            tests/unit/hooks/full-auto-delegation.test.ts \
+            tests/unit/hooks/full-auto-input-probe.test.ts \
+            tests/unit/hooks/full-auto-permission-integration.test.ts \
+            tests/unit/hooks/full-auto-permission.test.ts \
+            tests/unit/hooks/gate-tracking.test.ts \
+            tests/unit/hooks/guardrails-architect-config-zone.adversarial.test.ts \
+            tests/unit/hooks/guardrails-attestation.test.ts \
+            tests/unit/hooks/guardrails-authority-enhanced.test.ts \
+            tests/unit/hooks/guardrails-authority.test.ts \
+            tests/unit/hooks/guardrails-catastrophic-warning.test.ts \
+            tests/unit/hooks/guardrails-coder-revisions.test.ts \
+            tests/unit/hooks/guardrails-codex-p1-fixes.test.ts \
+            tests/unit/hooks/guardrails-config-file-logging.test.ts \
+            tests/unit/hooks/guardrails-directory.adversarial.test.ts \
+            tests/unit/hooks/guardrails-directory.test.ts \
+            tests/unit/hooks/guardrails-disabled.test.ts \
+            tests/unit/hooks/guardrails-enforcement.test.ts \
+            tests/unit/hooks/guardrails-error-classification.test.ts \
+            tests/unit/hooks/guardrails-fallback.test.ts \
+            tests/unit/hooks/guardrails-loop-detection.test.ts \
+            tests/unit/hooks/guardrails-model-fallback.adversarial.test.ts \
+            tests/unit/hooks/guardrails-model-fallback.test.ts \
+            tests/unit/hooks/guardrails-modified-files.adversarial.test.ts \
+            tests/unit/hooks/guardrails-modified-files.test.ts \
+            tests/unit/hooks/guardrails-native-agents.test.ts \
+            tests/unit/hooks/guardrails-pathtraversal-adversarial.test.ts \
+            tests/unit/hooks/guardrails-plan-md-guard.test.ts \
+            tests/unit/hooks/guardrails-plan-md-protection.test.ts \
+            tests/unit/hooks/guardrails-pre-check-batch.test.ts \
+            tests/unit/hooks/guardrails-prompt-trimming.adversarial.test.ts \
+            tests/unit/hooks/guardrails-prompt-trimming.test.ts \
+            tests/unit/hooks/guardrails-runaway.test.ts \
+            tests/unit/hooks/guardrails-scope-check.adversarial.test.ts \
+            tests/unit/hooks/guardrails-scope-check.test.ts \
+            tests/unit/hooks/guardrails-self-coding-gate.test.ts \
+            tests/unit/hooks/guardrails-shell-write.test.ts \
+            tests/unit/hooks/guardrails-source-path.test.ts \
+            tests/unit/hooks/guardrails-subagent-advisory.test.ts \
+            tests/unit/hooks/guardrails-swarm-path-evasion.adversarial.test.ts \
+            tests/unit/hooks/guardrails-swarm-path-guard.test.ts \
+            tests/unit/hooks/guardrails-task-1-7-edge-case.test.ts \
+            tests/unit/hooks/guardrails-task23.adversarial.test.ts \
+            tests/unit/hooks/guardrails-test-suite-guard.adversarial.test.ts \
+            tests/unit/hooks/guardrails-test-suite-guard.test.ts \
+            tests/unit/hooks/guardrails-v612-adversarial.test.ts \
+            tests/unit/hooks/guardrails-v612-verification.test.ts \
+            tests/unit/hooks/guardrails-v622-adversarial.test.ts \
+            tests/unit/hooks/guardrails-zone-authority.test.ts \
+            tests/unit/hooks/guardrails.adversarial.test.ts \
+            tests/unit/hooks/guardrails.test.ts \
+            tests/unit/hooks/hive-promoter-task3-4.adversarial.test.ts \
+            tests/unit/hooks/hive-promoter.adversarial.test.ts \
+            tests/unit/hooks/hive-promoter.test.ts \
+            tests/unit/hooks/hook-composition.test.ts \
+            tests/unit/hooks/interpreter-gating.test.ts \
+            tests/unit/hooks/knowledge-application-gate.test.ts \
+            tests/unit/hooks/knowledge-application.test.ts \
+            tests/unit/hooks/knowledge-contextual-retrieval.test.ts \
+            tests/unit/hooks/knowledge-curator-evidence-predicate.test.ts \
+            tests/unit/hooks/knowledge-curator-outcome-promotion.test.ts \
+            tests/unit/hooks/knowledge-curator-skip-promotion.test.ts \
+            tests/unit/hooks/knowledge-events.test.ts \
+            tests/unit/hooks/knowledge-injector-allowlist.test.ts \
+            tests/unit/hooks/knowledge-injector-drift-adversarial.test.ts \
+            tests/unit/hooks/knowledge-injector-drift.test.ts \
+            tests/unit/hooks/knowledge-injector.test.ts \
+            tests/unit/hooks/knowledge-migrator.adversarial.test.ts \
+            tests/unit/hooks/knowledge-migrator.external.test.ts \
+            tests/unit/hooks/knowledge-migrator.test.ts \
+            tests/unit/hooks/knowledge-quarantine.adversarial.test.ts \
+            tests/unit/hooks/knowledge-quarantine.test.ts \
+            tests/unit/hooks/knowledge-reader-key-normalization.test.ts \
+            tests/unit/hooks/knowledge-reader.test.ts \
+            tests/unit/hooks/knowledge-registration.test.ts \
+            tests/unit/hooks/knowledge-schema-v2.test.ts \
+            tests/unit/hooks/knowledge-store-caps.test.ts \
+            tests/unit/hooks/knowledge-store-normalize-entry.adversarial.test.ts \
+            tests/unit/hooks/knowledge-store-normalize-entry.test.ts \
+            tests/unit/hooks/knowledge-store-sweep.test.ts \
+            tests/unit/hooks/knowledge-store.test.ts \
+            tests/unit/hooks/knowledge-types.adversarial.test.ts \
+            tests/unit/hooks/knowledge-types.test.ts \
+            tests/unit/hooks/knowledge-validator.adversarial.test.ts \
+            tests/unit/hooks/knowledge-validator.test.ts \
+            tests/unit/hooks/system-enhancer-v62.test.ts \
+            tests/unit/hooks/system-enhancer.test.ts \
+            tests/unit/hooks/system-message-consolidation.test.ts \
+            tests/unit/hooks/telemetry-guardrails-wiring.test.ts \
+            tests/unit/hooks/tool-summarizer-exempt.adversarial.test.ts \
+            tests/unit/hooks/tool-summarizer-exempt.test.ts \
+            tests/unit/hooks/tool-summarizer.test.ts \
+            tests/unit/hooks/trajectory-logger.test.ts \
+            tests/unit/hooks/write-lstat-authority.test.ts; do
             [ -f "$f" ] || continue
             tmp="$tmpdir/bun-out-$$-${f##*/}"
             exit_code=0
@@ -399,12 +587,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.3.13"
       - name: Cache bun dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -439,12 +627,12 @@ jobs:
     needs: quality
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.3.13"
       - name: Cache bun dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -461,13 +649,20 @@ jobs:
           # while Linux bun produces node_modules/PACKAGE.
           # After build, dist/ has clean Linux paths. We must normalize the committed
           # (git index) side before comparing, not the freshly built working tree.
+          #
+          # Also normalize var __dirname = "..." values: bun ESM bundles embed the
+          # build-time source path, which differs between Windows and Linux builders.
           tmpdir="${RUNNER_TEMP:-${TEMP:-/tmp}}"
           dist_committed="$tmpdir/dist-committed"
           mkdir -p "$dist_committed"
           git archive HEAD dist/ | tar -x -C "$dist_committed"
           find "$dist_committed/dist/" -name "*.js" -type f -exec sed -i \
             -e 's|node_modules/\.bun/[^/]\+/node_modules/|node_modules/|g' \
-            -e 's/\r$//' {} +
+            -e 's/\r$//' \
+            -e 's|var __dirname = "[^"]*"|var __dirname = "__DIRNAME_NORMALIZED__"|g' {} +
+          # Normalize __dirname in the freshly built dist too (Linux vs Windows paths).
+          find dist/ -name "*.js" -type f -exec sed -i \
+            -e 's|var __dirname = "[^"]*"|var __dirname = "__DIRNAME_NORMALIZED__"|g' {} +
           # Remove gitignored paths from the freshly built dist before comparing.
           # These are intentionally excluded from commits (see .gitignore lines 29-35).
           rm -rf dist/build/ dist/quality/ dist/sbom/
@@ -475,7 +670,17 @@ jobs:
                 dist/tools/quality-budget.d.ts dist/tools/sbom-generate.d.ts
           diff -r "$dist_committed/dist/" dist/ || {
             echo "ERROR: dist/ has uncommitted changes after build."
-            echo "Run 'bun run build' locally and commit the updated dist/."
+            echo ""
+            echo "Recovery (run these commands in order):"
+            echo "  1. bun install --frozen-lockfile --force  # refresh nested deps to match CI"
+            echo "  2. bun run build                         # regenerate dist/"
+            echo "  3. Verify the dist/ diff is expected: git diff -- dist/"
+            echo "  4. Commit the regenerated dist/ and push"
+            echo ""
+            echo "Common causes:"
+            echo "  - Local bun version differs from CI (CI pins bun 1.3.13)"
+            echo "  - Nested dependency versions differ between local and CI install"
+            echo "  - Stale dist/ after rebase on a newer origin/main"
             exit 1
           }
           rm -rf "$dist_committed"
@@ -484,15 +689,15 @@ jobs:
     needs: quality
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.3.13"
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: "22"
       - name: Cache bun dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -508,12 +713,12 @@ jobs:
     needs: quality
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.3.13"
       - name: Cache bun dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -528,17 +733,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
       - uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2
         with:
           php-version: "8.2"
           tools: composer
           coverage: none
-      - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.3.13"
       - name: Cache bun dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -558,8 +763,41 @@ jobs:
       - name: Laravel fixture detection and SAST coverage tests
         run: bun --smol test tests/unit/lang/laravel-fixture.test.ts --timeout 60000
 
+  rust-sandbox-runner:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          components: rustfmt, clippy
+      - name: Cache cargo
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            runners/swarm-sandbox-runner/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('runners/swarm-sandbox-runner/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: Check formatting
+        working-directory: runners/swarm-sandbox-runner
+        run: cargo fmt --check
+      - name: Clippy lint
+        working-directory: runners/swarm-sandbox-runner
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Run tests
+        working-directory: runners/swarm-sandbox-runner
+        run: cargo test --all-targets
+      - name: Build release binary
+        working-directory: runners/swarm-sandbox-runner
+        run: cargo build --release
+      - name: Probe smoke test
+        working-directory: runners/swarm-sandbox-runner
+        run: ./target/release/swarm-sandbox-runner.exe --probe
+
   smoke:
-    needs: [unit, integration, dist-check, package-check, php-validation]
+    needs: [unit, integration, dist-check, package-check, php-validation, rust-sandbox-runner]
     strategy:
       fail-fast: false
       matrix:
@@ -567,12 +805,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.3.13"
       - name: Cache bun dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}

@@ -1,5 +1,80 @@
 # Changelog
 
+## [7.48.0](https://github.com/zaxbysauce/opencode-swarm/compare/v7.47.0...v7.48.0) (2026-06-03)
+
+
+### Features
+
+* **pr-review:** add first-class MODE: PR_REVIEW with quality-over-speed hardening ([#1100](https://github.com/zaxbysauce/opencode-swarm/issues/1100)) ([22dd966](https://github.com/zaxbysauce/opencode-swarm/commit/22dd966b81193b9b6af70448d35583508f930646))
+
+## [7.47.0](https://github.com/zaxbysauce/opencode-swarm/compare/v7.46.5...v7.47.0) (2026-06-02)
+
+
+### Features
+
+* **design-docs:** add design-doc generation + per-phase drift sync ([#1096](https://github.com/zaxbysauce/opencode-swarm/issues/1096)) ([4b676d0](https://github.com/zaxbysauce/opencode-swarm/commit/4b676d0374c31fdead816ab2f586846acdfd06ad))
+
+## [7.46.5](https://github.com/zaxbysauce/opencode-swarm/compare/v7.46.4...v7.46.5) (2026-06-01)
+
+
+### Bug Fixes
+
+* resolve PR [#712](https://github.com/zaxbysauce/opencode-swarm/issues/712) follow-up items (regex dedup, test gaps, redundant test) ([#1087](https://github.com/zaxbysauce/opencode-swarm/issues/1087)) ([3852078](https://github.com/zaxbysauce/opencode-swarm/commit/38520787acf93145db6e6bdad73eba5258119397))
+
+## [7.46.4](https://github.com/zaxbysauce/opencode-swarm/compare/v7.46.3...v7.46.4) (2026-06-01)
+
+
+### Bug Fixes
+
+* **turbo:** migrate turbo-lean tests to `_internals` seam and correct `standard off` docs ([#1086](https://github.com/zaxbysauce/opencode-swarm/issues/1086)) ([0b51b62](https://github.com/zaxbysauce/opencode-swarm/commit/0b51b62838174515194c05af1f414ad852c5dab1))
+
+## [7.46.3](https://github.com/zaxbysauce/opencode-swarm/compare/v7.46.2...v7.46.3) (2026-06-01)
+
+
+### Bug Fixes
+
+* **repo-graph:** harden realpath handling with shared ENOENT-only fallback and DI seams ([#1084](https://github.com/zaxbysauce/opencode-swarm/issues/1084)) ([318274b](https://github.com/zaxbysauce/opencode-swarm/commit/318274b8dfb46b4eacd1f70bce93a0e955be7257))
+
+## [7.46.2](https://github.com/zaxbysauce/opencode-swarm/compare/v7.46.1...v7.46.2) (2026-06-01)
+
+
+### Bug Fixes
+
+* **knowledge:** close event feedback loop for issue 1067 ([#1081](https://github.com/zaxbysauce/opencode-swarm/issues/1081)) ([a322ce3](https://github.com/zaxbysauce/opencode-swarm/commit/a322ce39ff3e1e43a44ac225b53a4ac356f18f78))
+
+## [7.46.1](https://github.com/zaxbysauce/opencode-swarm/compare/v7.46.0...v7.46.1) (2026-05-29)
+
+
+### Bug Fixes
+
+* **architect:** add explicit CRITIC-GATE transition and complete critic funnel routing ([#1072](https://github.com/zaxbysauce/opencode-swarm/issues/1072)) ([0e2210f](https://github.com/zaxbysauce/opencode-swarm/commit/0e2210fb4a1fd8cce7df6fe68d66de093bd2ec07))
+
+## [7.46.0](https://github.com/zaxbysauce/opencode-swarm/compare/v7.45.0...v7.46.0) (2026-05-29)
+
+
+### Features
+
+* **sandbox:** add native Windows sandbox runner (AppContainer + restricted token) ([#1068](https://github.com/zaxbysauce/opencode-swarm/issues/1068)) ([e40fd8e](https://github.com/zaxbysauce/opencode-swarm/commit/e40fd8e0525e2ba0b3e1d32b33336291df8a8b06))
+
+## [7.45.0](https://github.com/zaxbysauce/opencode-swarm/compare/v7.44.1...v7.45.0) (2026-05-28)
+
+
+### Features
+
+* **diff:** harden semantic diff pipeline with symlink containment, typed git errors, async I/O, class rename ([1b623ff](https://github.com/zaxbysauce/opencode-swarm/commit/1b623ff47e37c3e14afcd22a95711132f464a728))
+
+
+### Bug Fixes
+
+* **test-runner:** restore allow_full_suite dual-guard and add selectHistoryForAnalysis tests ([#1063](https://github.com/zaxbysauce/opencode-swarm/issues/1063)) ([ec92616](https://github.com/zaxbysauce/opencode-swarm/commit/ec92616d435ccd636dddaa39610c106f67d9a251))
+
+## [7.44.1](https://github.com/zaxbysauce/opencode-swarm/compare/v7.44.0...v7.44.1) (2026-05-28)
+
+
+### Bug Fixes
+
+* **analyzer:** rank and return all fuzzy suffix matches in fallback impact lookup ([#1062](https://github.com/zaxbysauce/opencode-swarm/issues/1062)) ([861fbd5](https://github.com/zaxbysauce/opencode-swarm/commit/861fbd5cef4bceb800d5ae8bb12740650931be9b))
+
 ## [7.44.0](https://github.com/zaxbysauce/opencode-swarm/compare/v7.43.1...v7.44.0) (2026-05-28)
 
 

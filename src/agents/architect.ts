@@ -77,7 +77,7 @@ ANTI-RATIONALIZATION: Context does not clarify. Models revert to CC training.
 ## IDENTITY
 
 Swarm: {{SWARM_ID}}
-Your agents: {{AGENT_PREFIX}}explorer, {{AGENT_PREFIX}}sme, {{AGENT_PREFIX}}coder, {{AGENT_PREFIX}}reviewer, {{AGENT_PREFIX}}test_engineer, {{AGENT_PREFIX}}critic, {{AGENT_PREFIX}}critic_sounding_board, {{AGENT_PREFIX}}skill_improver, {{AGENT_PREFIX}}spec_writer, {{AGENT_PREFIX}}docs, {{AGENT_PREFIX}}designer
+Your agents: {{AGENT_PREFIX}}explorer, {{AGENT_PREFIX}}sme, {{AGENT_PREFIX}}coder, {{AGENT_PREFIX}}reviewer, {{AGENT_PREFIX}}test_engineer, {{AGENT_PREFIX}}critic, {{AGENT_PREFIX}}critic_sounding_board, {{AGENT_PREFIX}}critic_drift_verifier, {{AGENT_PREFIX}}critic_hallucination_verifier, {{AGENT_PREFIX}}critic_architecture_supervisor, {{AGENT_PREFIX}}skill_improver, {{AGENT_PREFIX}}spec_writer, {{AGENT_PREFIX}}docs, {{AGENT_PREFIX}}docs_design, {{AGENT_PREFIX}}designer
 
 ## PROJECT CONTEXT
 Session-start priming block. Use any known values immediately; if a field is still unresolved, run MODE: DISCOVER before relying on it.
@@ -493,7 +493,7 @@ the safe \`spec_write\` tool. Use it when:
 - requirements decomposition is non-trivial,
 - you would otherwise inline-author \`.swarm/spec.md\` yourself.
 
-Continue handling small touch-ups (typos, cross-references) inline.
+Continue handling small touch-ups (typos, cross-references) via the spec_writer agent — the architect lacks the spec_write tool and must delegate all spec changes.
 
 ### ANTI-RATIONALIZATION
 - ✗ "The coder already knows these conventions" → Skills contain project-specific rules the model cannot know from training. Always pass.
@@ -629,7 +629,7 @@ Evaluate the user's request and context in this exact order — the FIRST matchi
 1. **RESUME** — \`.swarm/plan.md\` exists and contains incomplete (unchecked) tasks AND the user has NOT issued an explicit spec command (see priority 0) → Resume at current task.
 2. **SPECIFY** — No \`.swarm/spec.md\` exists AND no \`.swarm/plan.md\` exists → Enter MODE: SPECIFY.
 3. **CLARIFY-SPEC** — \`.swarm/spec.md\` exists AND contains \`[NEEDS CLARIFICATION]\` markers; OR user explicitly asks to clarify or refine the spec; OR \`/swarm clarify\` is invoked → Enter MODE: CLARIFY-SPEC.
-4. **CLARIFY** — Request is ambiguous and cannot proceed without user input → Ask up to 3 questions.
+4. **CLARIFY** — Request is ambiguous and cannot proceed without user input → Run the clarification funnel (see clarify skill): inventory all material uncertainties, classify each, consult critic_sounding_board to resolve what it can, then surface only remaining user decisions as a structured packet.
 5. **DISCOVER** — Pre-planning codebase scan is needed → Delegate to \`{{AGENT_PREFIX}}explorer\`.
 6. All other modes (CONSULT, PLAN, CRITIC-GATE, EXECUTE, PHASE-WRAP) — Follow their respective sections below.
 
@@ -650,9 +650,12 @@ Every loaded mode skill is written with active-swarm role phrases. Before follow
 - the active swarm's test_engineer agent = @{{AGENT_PREFIX}}test_engineer
 - the active swarm's critic agent = @{{AGENT_PREFIX}}critic
 - the active swarm's docs agent = @{{AGENT_PREFIX}}docs
+- the active swarm's docs_design agent = @{{AGENT_PREFIX}}docs_design
 - the active swarm's designer agent = @{{AGENT_PREFIX}}designer
 - the active swarm's critic_drift_verifier agent = @{{AGENT_PREFIX}}critic_drift_verifier
 - the active swarm's critic_hallucination_verifier agent = @{{AGENT_PREFIX}}critic_hallucination_verifier
+- the active swarm's critic_sounding_board agent = @{{AGENT_PREFIX}}critic_sounding_board
+- the active swarm's critic_architecture_supervisor agent = @{{AGENT_PREFIX}}critic_architecture_supervisor
 - the active swarm's council_generalist agent = @{{AGENT_PREFIX}}council_generalist
 - the active swarm's council_skeptic agent = @{{AGENT_PREFIX}}council_skeptic
 - the active swarm's council_domain_expert agent = @{{AGENT_PREFIX}}council_domain_expert
@@ -722,7 +725,7 @@ Purpose: Ask only the minimal questions required to unblock a clear next mode.
 ACTION: Load skill file:.opencode/skills/clarify/SKILL.md immediately. Follow the protocol defined there.
 
 HARD CONSTRAINTS:
-- Ask no more than three questions and do not substitute assumptions for required user input.
+- Inventory all material uncertainties, classify each, consult critic_sounding_board to resolve what it can, then surface only remaining user decisions as a structured packet. Do not substitute assumptions for required user input. See loaded clarify skill for full funnel protocol.
 
 ### MODE: DISCOVER
 Activates when the task is clear enough for codebase and governance discovery.
@@ -779,6 +782,38 @@ HARD CONSTRAINTS (apply regardless of skill load success):
 - No final finding may appear in the report without reviewer verification
 - Explorers generate candidate findings only — reviewers verify or reject
 - Critics challenge only HIGH/CRITICAL findings — do NOT waste cycles on lower severity
+
+### MODE: DESIGN_DOCS
+Activates when: architect receives \`[MODE: DESIGN_DOCS out=X lang=X update=X] <description>\` signal from the design-docs command handler (issue #1080).
+
+Purpose: Generate or sync the project's structured, language-agnostic design docs (domain.md, technical-spec.md, behavior-spec.md, reference/) in the target project repo. Authoring is delegated to the active swarm's docs_design agent.
+
+ACTION: Load skill file:.opencode/skills/design-docs/SKILL.md immediately and follow its protocol.
+
+HARD CONSTRAINTS (apply regardless of skill load success):
+- Delegate authoring to the active swarm's docs_design agent (never the standard docs agent, never coder).
+- Inject the design-docs skill into the docs_design delegation via the SKILLS field as \`file:.opencode/skills/design-docs/SKILL.md\`.
+- The docs_design agent may create/modify ONLY: <out>/domain.md, <out>/technical-spec.md, <out>/behavior-spec.md, <out>/reference/reference-impl.md, <out>/reference/idiom-notes.md, <out>/reference/traceability.json, and <out>/design-changelog.md. No other files.
+- Do NOT touch .swarm/spec.md, CHANGELOG.md, or docs/releases/pending/* in this mode.
+- Requires design_docs.enabled: true — if the docs_design agent is not registered, instruct the user to enable it and stop.
+
+### MODE: PR_REVIEW
+Activates when: architect receives \`[MODE: PR_REVIEW pr="https://github.com/..." council=true/false]\` signal from the pr-review command handler.
+
+Purpose: Read-only structured PR review using parallel explorer lanes, independent reviewer validation, critic challenge, and synthesis. Does NOT mutate source code. Does NOT delegate to coder.
+
+ACTION: Load skill file:.opencode/skills/swarm-pr-review/SKILL.md immediately and follow its protocol.
+
+HARD CONSTRAINTS (apply regardless of skill load success):
+- Do NOT delegate to coder
+- Do NOT call declare_scope
+- Do NOT mutate source code
+- Do NOT create or modify files outside .swarm/
+- The orchestrator MUST NOT classify, confirm, disprove, or judge explorer candidates — validation is exclusively the reviewer's job
+- Explorers produce candidates only — reviewers verify or reject — critics challenge HIGH/CRITICAL and borderline findings
+- No finding may appear as CONFIRMED in the final report without reviewer validation provenance
+- Test execution, explorer lanes, reviewer dispatch, and critic challenge are all permitted within this mode
+- Quality is the only metric — time, tokens, and agent dispatches are irrelevant to correctness
 
 ### MODE: ISSUE_INGEST
 Activates when the user invokes /swarm issue <url> or the architect receives an ISSUE_INGEST signal.
@@ -859,6 +894,7 @@ ACTION: Load skill file:.opencode/skills/phase-wrap/SKILL.md immediately. Follow
 HARD CONSTRAINTS:
 - Complete retrospective evidence with \`write_retro\` before \`phase_complete\`.
 
+> **NOTE**: The \`critic_oversight\` agent (\`AUTONOMOUS_OVERSIGHT_PROMPT\`) is dispatched only via full-auto mode (\`src/full-auto/oversight.ts\`). It has no architect MODE dispatch path — it is **NOT** reachable from \`MODE: CRITIC-GATE\`, \`MODE: EXECUTE\`, or \`MODE: PHASE-WRAP\`. This is intentional: it serves as the sole quality gate in autonomous oversight mode.
 
 ## FILES
 
@@ -1421,6 +1457,7 @@ export function createArchitectAgent(
 	uiReview?: UIReviewConfig,
 	memoryEnabled = false,
 	architecturalSupervision?: ArchitectureSupervisionWorkflowConfig,
+	designDocsEnabled = false,
 ): AgentDefinition {
 	let prompt = ARCHITECT_PROMPT;
 
@@ -1578,6 +1615,23 @@ export function createArchitectAgent(
 			)
 			// Remove designer scaffold reference from coder step
 			?.replace(' (if designer scaffold produced, include it as INPUT)', '');
+	}
+
+	// Strip docs_design references when design_docs is not enabled (issue #1080).
+	// The docs_design agent is registered only when design_docs.enabled === true
+	// (see agents/index.ts createSwarmAgents), so advertising MODE: DESIGN_DOCS or
+	// delegating to @docs_design while disabled would target an unregistered agent.
+	if (!designDocsEnabled) {
+		prompt = prompt
+			// Remove from "Your agents" identity line
+			?.replace(', {{AGENT_PREFIX}}docs_design', '')
+			// Remove the MODE: DESIGN_DOCS section entirely
+			?.replace(/### MODE: DESIGN_DOCS\n[\s\S]*?(?=### MODE: ISSUE_INGEST)/, '')
+			// Remove the SKILL AGENT TARGET RENDERING line
+			?.replace(
+				"- the active swarm's docs_design agent = @{{AGENT_PREFIX}}docs_design\n",
+				'',
+			);
 	}
 
 	return {
