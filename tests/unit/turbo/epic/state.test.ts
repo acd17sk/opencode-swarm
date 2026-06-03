@@ -19,6 +19,7 @@ import {
 	emptyPersisted,
 	enableEpicMode,
 	isEpicModeActive,
+	isEpicModeActiveForProject,
 	isStateUnreadable,
 	loadEpicSessionState,
 	recordEpicDecision,
@@ -211,5 +212,54 @@ describe('epic state — reset + decision recording', () => {
 		).toThrow(/no session entry exists/i);
 		// And the file should not have gained a phantom entry.
 		expect(loadEpicSessionState(dir, 'sess-never-enabled')).toBeNull();
+	});
+});
+
+describe('isEpicModeActiveForProject — project-scoped Epic check', () => {
+	test('returns true when ANY session is active, regardless of which', () => {
+		// Architect's session enabled Epic; sub-agent sessions never toggle it.
+		// The project-scoped check must answer "is the project under Epic"
+		// from the sub-agent's perspective — that's the whole reason this
+		// function exists (Rule 2's auto-commit fires from sub-agent sessions
+		// after council/reviewer completion).
+		enableEpicMode(dir, 'architect-session');
+		expect(isEpicModeActiveForProject(dir)).toBe(true);
+		// And `isEpicModeActive` from a DIFFERENT session correctly returns
+		// false — proving the two functions are not collapsing into the same
+		// answer.
+		expect(isEpicModeActive(dir, 'coder-subagent-session')).toBe(false);
+	});
+
+	test('returns false when all sessions are inactive', () => {
+		enableEpicMode(dir, 'sess-A');
+		disableEpicMode(dir, 'sess-A');
+		expect(isEpicModeActiveForProject(dir)).toBe(false);
+	});
+
+	test('returns false when no state file has ever been written', () => {
+		// Note: this still seeds the empty file (existing readPersisted
+		// behavior). The contract is the return value, not the absence of
+		// side effects.
+		expect(isEpicModeActiveForProject(dir)).toBe(false);
+	});
+
+	test('fail-closed: unreadable state file returns false (matches module default)', () => {
+		fs.mkdirSync(path.join(dir, '.swarm'), { recursive: true });
+		fs.writeFileSync(
+			path.join(dir, '.swarm', 'epic-state.json'),
+			'{ not valid json',
+		);
+		// Trigger the unreadable marker via any read.
+		expect(loadEpicSessionState(dir, 'whatever')).toBeNull();
+		expect(isStateUnreadable(dir)).toBe(true);
+		expect(isEpicModeActiveForProject(dir)).toBe(false);
+	});
+
+	test('mixed sessions — at least one active is sufficient', () => {
+		enableEpicMode(dir, 'sess-active');
+		// Another session toggled off — the project should still read active.
+		enableEpicMode(dir, 'sess-off');
+		disableEpicMode(dir, 'sess-off');
+		expect(isEpicModeActiveForProject(dir)).toBe(true);
 	});
 });

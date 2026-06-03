@@ -123,54 +123,196 @@ describe('decideEpicActivation — hot-module gate', () => {
 	});
 });
 
-describe('decideEpicActivation — greenfield gate', () => {
-	test('demotes when commits observed < minCommitsForSignal', () => {
+describe('decideEpicActivation — greenfield gate (Phase 10: predecessor evidence)', () => {
+	// The legacy `commitsObserved >= minCommitsForSignal` floor is gone.
+	// The gate now asks "are this phase's cross-phase upstream tasks in
+	// git history?" — the structural happens-before check. Commit count
+	// is retained in the rationale for telemetry only.
+
+	test('passes vacuously when there are no cross-phase upstreams (Phase 1, single-phase plans, declared-independent phases)', () => {
 		const tasks: CouplingTask[] = [
 			{ id: '1.1', scope: ['src/foo.ts'] },
 			{ id: '1.2', scope: ['src/bar.ts'] },
 		];
-		const v = decideEpicActivation(tasks, [], 5, DEFAULT_OPTS);
+		// Zero commits observed — historically this would have demoted;
+		// under Phase 10 with no upstreams to verify, the gate passes.
+		const v = decideEpicActivation(tasks, [], 0, DEFAULT_OPTS);
+		expect(v.rationale.greenfieldCheck.passed).toBe(true);
+		expect(v.rationale.greenfieldCheck.crossPhaseUpstreams).toEqual([]);
+		expect(v.rationale.greenfieldCheck.missingUpstreams).toEqual([]);
+	});
+
+	test('passes when every cross-phase upstream has a swarm commit (the user-reported small-project scenario)', () => {
+		// 12-task project, Phase 2 deciding. Phase 1 produced 4 commits
+		// — well below the legacy 20-commit floor that used to permanently
+		// demote small projects. Under Phase 10, the structural check
+		// passes because Phase 1's deps ARE committed.
+		const tasks: CouplingTask[] = [
+			{ id: '2.1', scope: ['src/models/logistic.py'] },
+			{ id: '2.2', scope: ['src/models/random_forest.py'] },
+		];
+		const v = decideEpicActivation(tasks, [], 4, {
+			...DEFAULT_OPTS,
+			isGitProject: true,
+			crossPhaseUpstreams: ['1.1', '1.2', '1.3'],
+			isUpstreamCommitted: (id) => ['1.1', '1.2', '1.3'].includes(id),
+		});
+		expect(v.decision).toBe('promote');
+		expect(v.rationale.greenfieldCheck.passed).toBe(true);
+		expect(v.rationale.greenfieldCheck.missingUpstreams).toEqual([]);
+		expect(v.blockingReasons).toEqual([]);
+	});
+
+	test('fails when ANY cross-phase upstream is missing its commit', () => {
+		const tasks: CouplingTask[] = [
+			{ id: '2.1', scope: ['src/x.ts'] },
+		];
+		const v = decideEpicActivation(tasks, [], 100, {
+			...DEFAULT_OPTS,
+			crossPhaseUpstreams: ['1.1', '1.2'],
+			isUpstreamCommitted: (id) => id === '1.1', // 1.2 missing
+		});
 		expect(v.decision).toBe('demote');
 		expect(v.rationale.greenfieldCheck.passed).toBe(false);
-		expect(v.blockingReasons.some((r) => r.includes('greenfield'))).toBe(true);
+		expect(v.rationale.greenfieldCheck.missingUpstreams).toEqual(['1.2']);
+		expect(
+			v.blockingReasons.some((r) => r.includes('predecessor evidence')),
+		).toBe(true);
+		expect(v.blockingReasons.some((r) => r.includes('1.2'))).toBe(true);
 	});
 
-	test('passes at the boundary (>= minCommitsForSignal)', () => {
+	test('blocking reason lists EVERY missing upstream (truncates beyond 5)', () => {
+		const tasks: CouplingTask[] = [{ id: '5.1', scope: ['src/x.ts'] }];
+		const upstreams = ['1.1', '1.2', '1.3', '1.4', '1.5', '1.6', '1.7'];
+		const v = decideEpicActivation(tasks, [], 0, {
+			...DEFAULT_OPTS,
+			crossPhaseUpstreams: upstreams,
+			isUpstreamCommitted: () => false,
+		});
+		expect(v.rationale.greenfieldCheck.missingUpstreams).toEqual(upstreams);
+		const reason = v.blockingReasons.find((r) =>
+			r.includes('predecessor evidence'),
+		);
+		expect(reason).toContain('1.1');
+		expect(reason).toContain('1.5');
+		expect(reason).toContain('+2 more');
+	});
+
+	test('fail-closed: cross-phase upstreams supplied but isUpstreamCommitted predicate omitted ⇒ all treated as missing', () => {
+		const tasks: CouplingTask[] = [{ id: '2.1', scope: ['src/x.ts'] }];
+		const v = decideEpicActivation(tasks, [], 100, {
+			...DEFAULT_OPTS,
+			crossPhaseUpstreams: ['1.1'],
+			// isUpstreamCommitted intentionally omitted.
+		});
+		expect(v.rationale.greenfieldCheck.passed).toBe(false);
+		expect(v.rationale.greenfieldCheck.missingUpstreams).toEqual(['1.1']);
+	});
+
+	test('commit count is no longer load-bearing: a project with 100 commits but a missing upstream still demotes', () => {
+		// Proves the old floor is genuinely gone — high commit count
+		// alone no longer admits a phase whose declared predecessors
+		// aren't actually in git.
+		const tasks: CouplingTask[] = [{ id: '3.1', scope: ['src/x.ts'] }];
+		const v = decideEpicActivation(tasks, [], 999, {
+			...DEFAULT_OPTS,
+			crossPhaseUpstreams: ['2.5'],
+			isUpstreamCommitted: () => false,
+		});
+		expect(v.decision).toBe('demote');
+		expect(v.rationale.greenfieldCheck.passed).toBe(false);
+	});
+});
+
+describe('decideEpicActivation — greenfield-smart Rule 1 (no-git bypass)', () => {
+	test('isGitProject=false bypasses greenfield gate even when commits=0', () => {
+		const tasks: CouplingTask[] = [
+			{ id: '1.1', scope: ['src/a.ts'] },
+			{ id: '1.2', scope: ['src/b.ts'] },
+		];
+		const v = decideEpicActivation(tasks, [], 0, {
+			...DEFAULT_OPTS,
+			isGitProject: false,
+		});
+		// All gates pass → promote despite zero commits, because no-git
+		// projects have no co-change signal for greenfield to evaluate.
+		expect(v.decision).toBe('promote');
+		expect(v.rationale.greenfieldCheck.passed).toBe(true);
+		expect(v.rationale.greenfieldCheck.bypassedNoGit).toBe(true);
+		expect(
+			v.blockingReasons.some((r) => r.includes('greenfield')),
+		).toBe(false);
+	});
+
+	test('isGitProject=true with cross-phase upstreams in git → passes (predecessor evidence)', () => {
+		// Phase 10 reframe: the old "isGitProject=true must apply the
+		// commit-floor" semantics are gone. The Path-B floor itself is
+		// gone. Git projects pass when their structural predecessors are
+		// committed, not when they've accumulated arbitrary commit count.
+		const tasks: CouplingTask[] = [
+			{ id: '2.1', scope: ['src/a.ts'] },
+			{ id: '2.2', scope: ['src/b.ts'] },
+		];
+		const v = decideEpicActivation(tasks, [], 0, {
+			...DEFAULT_OPTS,
+			isGitProject: true,
+			crossPhaseUpstreams: ['1.1'],
+			isUpstreamCommitted: () => true,
+		});
+		expect(v.decision).toBe('promote');
+		expect(v.rationale.greenfieldCheck.passed).toBe(true);
+		expect(v.rationale.greenfieldCheck.bypassedNoGit).toBeUndefined();
+	});
+
+	test('isGitProject omitted with no cross-phase upstreams → passes vacuously', () => {
+		const tasks: CouplingTask[] = [
+			{ id: '1.1', scope: ['src/a.ts'] },
+			{ id: '1.2', scope: ['src/b.ts'] },
+		];
+		// No isGitProject flag, no upstreams to verify, 0 commits — Phase 10
+		// passes (vacuous predecessor evidence). The pre-Phase-10 behavior
+		// here was demote-due-to-low-commits; that gate is gone.
+		const v = decideEpicActivation(tasks, [], 0, DEFAULT_OPTS);
+		expect(v.rationale.greenfieldCheck.passed).toBe(true);
+		expect(v.rationale.greenfieldCheck.bypassedNoGit).toBeUndefined();
+	});
+
+	test('no-git bypass does NOT short-circuit the other gates', () => {
+		// Even with the greenfield bypass, hot-module conflicts must still
+		// fail-closed. Bypass ≠ "auto-promote everything".
 		const tasks: CouplingTask[] = [
 			{ id: '1.1', scope: ['src/foo.ts'] },
-			{ id: '1.2', scope: ['src/bar.ts'] },
+			{ id: '1.2', scope: ['package.json'] }, // global file → hot
 		];
-		const v = decideEpicActivation(tasks, [], 20, DEFAULT_OPTS);
+		const v = decideEpicActivation(tasks, [], 0, {
+			...DEFAULT_OPTS,
+			isGitProject: false,
+		});
+		expect(v.decision).toBe('demote');
 		expect(v.rationale.greenfieldCheck.passed).toBe(true);
-	});
-
-	test('zero observed commits explicitly fails', () => {
-		const v = decideEpicActivation(
-			[
-				{ id: '1.1', scope: ['src/a.ts'] },
-				{ id: '1.2', scope: ['src/b.ts'] },
-			],
-			[],
-			0,
-			DEFAULT_OPTS,
-		);
-		expect(v.rationale.greenfieldCheck.passed).toBe(false);
+		expect(v.rationale.hotModuleCheck.passed).toBe(false);
 	});
 });
 
 describe('decideEpicActivation — multi-gate failures', () => {
 	test('blockingReasons lists every failing gate', () => {
 		const tasks: CouplingTask[] = [
-			{ id: '1.1', scope: ['src/auth.ts'] },
-			{ id: '1.2', scope: ['src/auth.ts'] }, // path conflict + protected
+			{ id: '2.1', scope: ['src/auth.ts'] },
+			{ id: '2.2', scope: ['src/auth.ts'] }, // path conflict + protected
 		];
-		const v = decideEpicActivation(tasks, [], 0, DEFAULT_OPTS);
+		// Pair the trip-wires with a missing cross-phase upstream so all
+		// three gates fail simultaneously.
+		const v = decideEpicActivation(tasks, [], 0, {
+			...DEFAULT_OPTS,
+			crossPhaseUpstreams: ['1.1'],
+			isUpstreamCommitted: () => false,
+		});
 		expect(v.decision).toBe('demote');
 		expect(v.blockingReasons.length).toBeGreaterThanOrEqual(2);
 		// At least one mention of each failed gate
 		const text = v.blockingReasons.join(' ');
 		expect(text).toContain('hot module');
-		expect(text).toContain('greenfield');
+		expect(text).toContain('predecessor evidence');
 	});
 
 	test('cochange-only conflict still drives p (even if path passes)', () => {
@@ -204,5 +346,59 @@ describe('decideEpicActivation — edge cases', () => {
 		expect(v.rationale.hotModuleCheck).toHaveProperty('touchedHotModules');
 		expect(v.rationale.greenfieldCheck).toHaveProperty('commitsObserved');
 		expect(v.rationale.greenfieldCheck).toHaveProperty('minCommits');
+	});
+});
+
+describe('decideEpicActivation — Phase 13 phantom-dep separation (B20)', () => {
+	test('phantomDeps non-empty ⇒ gate demotes with a dedicated "phantom dep" blocking reason', () => {
+		const tasks: CouplingTask[] = [{ id: '2.1', scope: ['src/x.ts'] }];
+		const v = decideEpicActivation(tasks, [], 100, {
+			...DEFAULT_OPTS,
+			phantomDeps: ['1.7'],
+			crossPhaseUpstreams: [],
+			isUpstreamCommitted: () => true,
+		});
+		expect(v.decision).toBe('demote');
+		expect(v.rationale.greenfieldCheck.passed).toBe(false);
+		expect(v.rationale.greenfieldCheck.phantomDeps).toEqual(['1.7']);
+		// The blocking reason must point at the typo, NOT at a
+		// non-existent cross-phase upstream waiting to commit.
+		const reason = v.blockingReasons.find((r) => r.includes('phantom dep'));
+		expect(reason).toBeDefined();
+		expect(reason).toContain('1.7');
+		// And there is NO "predecessor evidence missing" reason — the
+		// missingUpstreams list is empty because we have no real
+		// cross-phase upstreams.
+		expect(
+			v.blockingReasons.some((r) => r.includes('predecessor evidence missing')),
+		).toBe(false);
+	});
+
+	test('phantomDeps AND missingUpstreams both populated ⇒ both reasons surface separately', () => {
+		const tasks: CouplingTask[] = [{ id: '2.1', scope: ['src/x.ts'] }];
+		const v = decideEpicActivation(tasks, [], 100, {
+			...DEFAULT_OPTS,
+			phantomDeps: ['1.7'],
+			crossPhaseUpstreams: ['1.1'],
+			isUpstreamCommitted: () => false, // 1.1 not committed
+		});
+		expect(v.decision).toBe('demote');
+		expect(v.rationale.greenfieldCheck.phantomDeps).toEqual(['1.7']);
+		expect(v.rationale.greenfieldCheck.missingUpstreams).toEqual(['1.1']);
+		expect(
+			v.blockingReasons.some((r) => r.includes('phantom dep')),
+		).toBe(true);
+		expect(
+			v.blockingReasons.some((r) => r.includes('predecessor evidence missing')),
+		).toBe(true);
+	});
+
+	test('no phantomDeps ⇒ rationale field is OMITTED (not [])', () => {
+		// Telemetry compactness: only include when relevant. This also
+		// keeps the JSONL diff readable across normal vs phantom-typo
+		// runs.
+		const tasks: CouplingTask[] = [{ id: '1.1', scope: ['src/x.ts'] }];
+		const v = decideEpicActivation(tasks, [], 100, DEFAULT_OPTS);
+		expect(v.rationale.greenfieldCheck.phantomDeps).toBeUndefined();
 	});
 });

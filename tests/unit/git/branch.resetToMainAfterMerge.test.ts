@@ -19,6 +19,27 @@ let returnValues: SpawnResult[] = [];
 // Track which git commands were called and in what order
 const gitCalls: { args: string[]; cwd: string }[] = [];
 
+/**
+ * Phase 11 prepended `['-c', 'commit.gpgsign=false', '-c', 'tag.gpgsign=false']`
+ * to every gitExec argv. This file's filters all do positional comparisons
+ * (`c.args[0] === 'branch'`), so we strip the prefix on the way in to keep
+ * the existing assertions valid. The full argv is still observable on the
+ * underlying `mockSpawnSync.mock.calls` if a test needs to inspect it.
+ */
+const GPG_DISABLE_PREFIX_LEN = 4;
+function stripGpgPrefix(args: string[]): string[] {
+	if (
+		args.length >= GPG_DISABLE_PREFIX_LEN &&
+		args[0] === '-c' &&
+		args[1] === 'commit.gpgsign=false' &&
+		args[2] === '-c' &&
+		args[3] === 'tag.gpgsign=false'
+	) {
+		return args.slice(GPG_DISABLE_PREFIX_LEN);
+	}
+	return args;
+}
+
 const mockSpawnSync = mock(
 	(command: string, args: string[], options: { cwd: string }) => {
 		const result = returnValues[callIndex] ?? {
@@ -26,7 +47,7 @@ const mockSpawnSync = mock(
 			stdout: '',
 			stderr: '',
 		};
-		gitCalls.push({ args: args as string[], cwd: options.cwd });
+		gitCalls.push({ args: stripGpgPrefix(args as string[]), cwd: options.cwd });
 		callIndex++;
 		return result;
 	},

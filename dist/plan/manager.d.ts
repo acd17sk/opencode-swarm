@@ -39,6 +39,10 @@ export interface AcknowledgedRemovals {
     source: string;
 }
 import { type Plan, type RuntimePlan, type TaskStatus } from '../config/plan-schema';
+import { isGitRepo } from '../git/branch';
+import { isEpicModeActiveForProject } from '../turbo/epic/state.js';
+import { commitTaskCompletion } from '../turbo/epic/task-commit.js';
+import { readTaskScopes } from '../turbo/lean/conflicts.js';
 import { type LedgerEvent, type LedgerEventInput, takeSnapshotWithRetry } from './ledger';
 /** Reset the startup ledger check flag. For testing only. */
 export declare function resetStartupLedgerCheck(): void;
@@ -54,6 +58,10 @@ export declare const _internals: {
     loadPlan: typeof loadPlan;
     loadPlanJsonOnly: typeof loadPlanJsonOnly;
     regeneratePlanMarkdown: typeof regeneratePlanMarkdown;
+    isGitRepo: typeof isGitRepo;
+    isEpicModeActiveForProject: typeof isEpicModeActiveForProject;
+    readTaskScopes: typeof readTaskScopes;
+    commitTaskCompletion: typeof commitTaskCompletion;
 };
 /** @internal Test seam for snapshot retry helper */
 export declare const _snapshot_test_exports: {

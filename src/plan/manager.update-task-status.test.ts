@@ -3,7 +3,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Plan } from '../config/plan-schema';
-import { loadPlan, savePlan, updateTaskStatus } from './manager';
+import { _internals, loadPlan, savePlan, updateTaskStatus } from './manager';
+
+type Internals = typeof _internals;
 
 function makePlan(): Plan {
 	return {
@@ -136,5 +138,129 @@ describe('updateTaskStatus phase status derivation', () => {
 		const reloaded = await loadPlan(tempDir);
 		const task12OnDisk = reloaded?.phases[0].tasks.find((t) => t.id === '1.2');
 		expect(task12OnDisk?.status).toBe('completed');
+	});
+});
+
+describe('updateTaskStatus Rule 2 auto-commit centralization', () => {
+	const originals: Internals = { ..._internals };
+	let tempDir: string;
+	let commitCalls: Array<{
+		directory: string;
+		taskId: string;
+		description?: string;
+		scopePaths?: string[];
+	}>;
+
+	beforeEach(async () => {
+		tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-rule2-test-'));
+		fs.mkdirSync(path.join(tempDir, '.swarm'), { recursive: true });
+		await savePlan(tempDir, makePlan());
+		commitCalls = [];
+		// Default: stub the commit seam so no real git ops fire.
+		// Phase 11: commitTaskCompletion is async; the stub matches.
+		_internals.commitTaskCompletion = async (
+			directory: string,
+			taskId: string,
+			description?: string,
+			scopePaths?: string[],
+		) => {
+			commitCalls.push({ directory, taskId, description, scopePaths });
+			return { committed: true, reason: 'success', sha: 'fakesha' };
+		};
+	});
+
+	afterEach(() => {
+		Object.assign(_internals, originals);
+		if (fs.existsSync(tempDir)) {
+			fs.rmSync(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	it('fires commitTaskCompletion exactly once when status=completed AND Epic active AND git repo', async () => {
+		_internals.isGitRepo = () => true;
+		_internals.isEpicModeActiveForProject = () => true;
+		_internals.readTaskScopes = () => ['src/foo.ts'];
+
+		await updateTaskStatus(tempDir, '1.1', 'completed');
+
+		expect(commitCalls).toHaveLength(1);
+		expect(commitCalls[0].taskId).toBe('1.1');
+		expect(commitCalls[0].description).toBe('First task');
+		expect(commitCalls[0].scopePaths).toEqual(['src/foo.ts']);
+	});
+
+	it('does NOT fire commitTaskCompletion when Epic Mode is inactive for the project', async () => {
+		_internals.isGitRepo = () => true;
+		_internals.isEpicModeActiveForProject = () => false;
+
+		await updateTaskStatus(tempDir, '1.1', 'completed');
+
+		expect(commitCalls).toHaveLength(0);
+	});
+
+	it('does NOT fire commitTaskCompletion when project is not a git repo (Rule 1 bypass)', async () => {
+		_internals.isGitRepo = () => false;
+		_internals.isEpicModeActiveForProject = () => true;
+
+		await updateTaskStatus(tempDir, '1.1', 'completed');
+
+		expect(commitCalls).toHaveLength(0);
+	});
+
+	it('does NOT fire commitTaskCompletion on non-completed transitions (in_progress, pending, blocked)', async () => {
+		_internals.isGitRepo = () => true;
+		_internals.isEpicModeActiveForProject = () => true;
+
+		await updateTaskStatus(tempDir, '1.1', 'in_progress');
+		await updateTaskStatus(tempDir, '1.1', 'pending');
+		await updateTaskStatus(tempDir, '1.1', 'blocked');
+
+		expect(commitCalls).toHaveLength(0);
+	});
+
+	it('commit failure is non-fatal — updateTaskStatus still returns the updated plan', async () => {
+		_internals.isGitRepo = () => true;
+		_internals.isEpicModeActiveForProject = () => true;
+		_internals.commitTaskCompletion = async () => {
+			throw new Error('git index locked');
+		};
+
+		const updated = await updateTaskStatus(tempDir, '1.1', 'completed');
+
+		// Durable write succeeded — plan ledger is authoritative (AGENTS.md #5).
+		expect(updated.phases[0].tasks.find((t) => t.id === '1.1')?.status).toBe(
+			'completed',
+		);
+		const reloaded = await loadPlan(tempDir);
+		expect(
+			reloaded?.phases[0].tasks.find((t) => t.id === '1.1')?.status,
+		).toBe('completed');
+	});
+
+	it('scope source is .swarm/scopes/scope-<id>.json (NOT plan-ledger files_touched)', async () => {
+		_internals.isGitRepo = () => true;
+		_internals.isEpicModeActiveForProject = () => true;
+		// Even if the plan-ledger had files_touched set, we do NOT consult
+		// it — the ledger replay path in loadPlan overrides savePlan
+		// mutations, so any "fallback" would be reading stale data.
+		_internals.readTaskScopes = (_dir: string, taskId: string) => {
+			if (taskId === '1.1') return ['src/canonical.ts'];
+			return null;
+		};
+
+		await updateTaskStatus(tempDir, '1.1', 'completed');
+
+		expect(commitCalls[0].scopePaths).toEqual(['src/canonical.ts']);
+	});
+
+	it('passes undefined scope when scope-<id>.json is missing (marker-only commit)', async () => {
+		_internals.isGitRepo = () => true;
+		_internals.isEpicModeActiveForProject = () => true;
+		_internals.readTaskScopes = () => null;
+
+		await updateTaskStatus(tempDir, '1.1', 'completed');
+
+		expect(commitCalls).toHaveLength(1);
+		expect(commitCalls[0].scopePaths).toBeUndefined();
 	});
 });

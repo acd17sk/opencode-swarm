@@ -26,6 +26,7 @@
 import type { ToolDefinition } from '@opencode-ai/plugin/tool';
 import { z } from 'zod';
 import { loadPluginConfigWithMeta as loadPluginConfigWithMeta_import } from '../config/index.js';
+import { isGitRepo as isGitRepo_import } from '../git/branch.js';
 import { loadPlanJsonOnly as loadPlanJsonOnly_import } from '../plan/manager.js';
 import { swarmState } from '../state.js';
 import type { EpicActivationVerdict } from '../turbo/epic/activation.js';
@@ -47,6 +48,10 @@ import {
 	isEpicModeActive as isEpicModeActive_import,
 	recordEpicDecision as recordEpicDecision_import,
 } from '../turbo/epic/state.js';
+import {
+	buildIsUpstreamCommitted as buildIsUpstreamCommitted_import,
+	buildIsUpstreamCommittedWithStatus as buildIsUpstreamCommittedWithStatus_import,
+} from '../turbo/epic/upstream-commits.js';
 import { readTaskScopes as readTaskScopes_import } from '../turbo/lean/conflicts.js';
 import type { LaneResult } from '../turbo/lean/runner.js';
 import { LeanTurboRunner as LeanTurboRunner_import } from '../turbo/lean/runner.js';
@@ -73,6 +78,22 @@ export interface EpicRunPhaseResult {
 	 *  - `'promoted'` — epic chose parallel and Lean Turbo ran.
 	 *  - `'epic-mode-not-active'` — the session has not toggled Epic Mode.
 	 *  - `'no-plan'` — `.swarm/plan.json` is missing.
+	 *  - `'no-phase'` — the requested phase number isn't present in the
+	 *    plan. Phase 12 (B11): without this, an unknown phase silently
+	 *    produced `currentPhaseTasks = []` and vacuously-passed the
+	 *    activation gate — promoting a phase that doesn't exist.
+	 *  - `'phase-already-complete'` — every task in the requested phase
+	 *    is already `status: 'completed'`. Phase 15 (B35): without this,
+	 *    re-running an already-completed phase silently produced a
+	 *    vacuous-pass `promote` verdict; the architect then called
+	 *    `lean_turbo_plan_lanes` and got an empty plan with no
+	 *    diagnostic.
+	 *  - `'phase-empty'` — the requested phase exists but its `tasks`
+	 *    array is empty (architect created a phase header but never
+	 *    populated it, or a council edit removed every task). Phase 17
+	 *    (E.1): the Phase 15 B35 guard only fired when at least one
+	 *    completed task existed; an empty `tasks: []` slipped through to
+	 *    the same vacuous-pass `promote` B35 was supposed to prevent.
 	 *  - `'lean-runner-error'` — Lean Turbo threw during promoted execution.
 	 *  - `'scopes-missing'` — one or more pending tasks in the phase have
 	 *    neither a declared scope file on disk nor `files_touched` in
@@ -80,7 +101,7 @@ export interface EpicRunPhaseResult {
 	 *    parallel lanes; without it the dispatch returns empty lanes and
 	 *    the parallelization promise is silently broken. The architect
 	 *    must call `declare_scope` for each missing task and then
-	 *    re-invoke `epic_run_phase`.
+	 *    re-invoke `epic_decide_phase`.
 	 */
 	reason: string;
 	/** Set when `reason === 'lean-runner-error'`. */
@@ -101,6 +122,7 @@ export const _internals = {
 	loadPlanJsonOnly: loadPlanJsonOnly_import,
 	getCoChangeData: getCoChangeData_import,
 	decideEpicActivation: decideEpicActivation_import,
+	isGitRepo: isGitRepo_import,
 	appendPromotionEvidence: appendPromotionEvidence_import,
 	recordEpicDecision: recordEpicDecision_import,
 	isEpicModeActive: isEpicModeActive_import,
@@ -112,6 +134,8 @@ export const _internals = {
 	effectiveHotModules: effectiveHotModules_import,
 	readDivergenceHistory: readDivergenceHistory_import,
 	LeanTurboRunner: LeanTurboRunner_import as typeof LeanTurboRunner_import,
+	buildIsUpstreamCommitted: buildIsUpstreamCommitted_import,
+	buildIsUpstreamCommittedWithStatus: buildIsUpstreamCommittedWithStatus_import,
 };
 
 /**
@@ -128,8 +152,15 @@ export const _internals = {
  * Returns the same EpicRunPhaseResult shape with:
  *  - reason: 'decided'  → verdict is promote, caller may dispatch.
  *  - reason: 'demoted'  → verdict is demote, caller falls back to serial.
- *  - reason: 'epic-mode-not-active' / 'no-plan' / 'scopes-missing' /
- *    'epic-state-unreadable' → error, see fields.
+ *
+ * Error / non-decision reasons (all set success: false):
+ *  - 'epic-mode-not-active' — the session has not toggled Epic Mode.
+ *  - 'no-plan' — `.swarm/plan.json` is missing.
+ *  - 'no-phase' (Phase 12 B11) — the requested phase number isn't in the plan.
+ *  - 'phase-empty' (Phase 17 E.1) — phase exists but has zero tasks.
+ *  - 'phase-already-complete' (Phase 15 B35) — every task already completed.
+ *  - 'scopes-missing' — one or more pending tasks lack declared scope.
+ *  - 'epic-state-unreadable' — `.swarm/epic-state.json` is corrupt.
  */
 export async function executeEpicDecidePhase(
 	args: EpicRunPhaseArgs,
@@ -161,10 +192,54 @@ export async function executeEpicDecidePhase(
 	// The banner-mandate Step 0 fix proved insufficient — tool-side
 	// enforcement is needed.
 	const phaseInPlan = plan.phases.find((ph) => ph.id === phase);
-	if (phaseInPlan) {
+	if (!phaseInPlan) {
+		// Phase 12 (B11): explicit failure rather than the silent
+		// vacuously-pass path. The activation gate's predecessor-evidence
+		// check (Phase 10) iterates over the current phase's tasks; with
+		// no phase to iterate, the upstream set is empty and the gate
+		// passes — promoting a phase that doesn't exist in the plan.
+		return {
+			success: false,
+			reason: 'no-phase',
+			message: `Phase ${phase} is not present in plan.json. Available phases: ${plan.phases.map((p) => p.id).join(', ') || '(none)'}.`,
+		};
+	}
+	{
 		const pendingTasks = phaseInPlan.tasks.filter(
 			(t) => t.status !== 'completed',
 		);
+		// Phase 17 (E.1): empty `tasks: []` is the OTHER vacuous-pass
+		// path. The Phase 15 B35 guard only fired when at least one
+		// completed task existed; an architect-created phase header with
+		// no tasks populated still produced a `promote` verdict before
+		// Phase 17. Surface it as its own reason so the architect can
+		// either populate the phase or remove the empty header.
+		if (phaseInPlan.tasks.length === 0) {
+			return {
+				success: false,
+				reason: 'phase-empty',
+				message:
+					`Phase ${phase} has no tasks. The phase header exists in plan.json but no tasks are defined. ` +
+					`Add tasks to this phase (with declared scopes, depends, and acceptance criteria) and re-invoke epic_decide_phase. ` +
+					`Alternatively, if the phase was created by mistake, remove it from plan.json and decide on the next valid phase.`,
+			};
+		}
+		// Phase 15 (B35): if EVERY task in the phase is already completed,
+		// don't run the activation gate at all. Pre-Phase-15 the gate
+		// returned a vacuous-pass `promote` because Phase 14's B29 filter
+		// produced an empty dep set; the architect then called
+		// `lean_turbo_plan_lanes` and got an empty lane plan with no
+		// diagnostic. The right answer is "phase is already done —
+		// advance to the next phase".
+		if (pendingTasks.length === 0) {
+			return {
+				success: false,
+				reason: 'phase-already-complete',
+				message:
+					`Phase ${phase} has no pending tasks — every task is already marked completed. ` +
+					`Advance to the next phase (or re-open tasks by setting status back to "pending" if you intended to re-run them).`,
+			};
+		}
 		const tasksMissingScope: string[] = [];
 		for (const task of pendingTasks) {
 			const declaredScope = _internals.readTaskScopes(directory, task.id);
@@ -249,7 +324,12 @@ export async function executeEpicDecidePhase(
 						// causing silent threshold drift across repeated failures
 						// (adversarial review H1). Sacrifice one run of new signal
 						// to preserve correctness — fall back to the durable state.
-						logger.warn(
+						// Phase 16 (C1.H5): the "sacrifice one run" intentional
+						// drop is exactly the operator-visible signal — without
+						// this, calibration silently regresses to the durable
+						// state with no surface indication. Pre-Phase-16 this
+						// was `warn` (debug-gated).
+						logger.criticalWarn(
 							`[epic_run_phase] calibration persist failed; ignoring this run's calibration delta to avoid drift on next run: ${err instanceof Error ? err.message : String(err)}`,
 						);
 					}
@@ -276,7 +356,11 @@ export async function executeEpicDecidePhase(
 				}
 			}
 		} catch (err) {
-			logger.warn(
+			// Phase 16 (C1.H4): calibration silently degrading to static
+			// thresholds is operator-visible — without this, p-threshold
+			// gate decisions could be using stale knobs and the operator
+			// wouldn't know calibration stopped updating.
+			logger.criticalWarn(
 				`[epic_run_phase] calibration step failed, falling back to static knobs: ${err instanceof Error ? err.message : String(err)}`,
 			);
 			effectiveThreshold = staticActivationThreshold;
@@ -302,6 +386,90 @@ export async function executeEpicDecidePhase(
 	const { pairs, commitsObserved } =
 		await _internals.getCoChangeData(directory);
 
+	// Rule 1 of the greenfield-smart redesign: explicitly tell the activation
+	// decider whether the project is a git repo. When it isn't, the greenfield
+	// gate's premise (co-change history) does not apply, so the gate is
+	// bypassed rather than fail-closed. See `decideEpicActivation`'s
+	// `isGitProject` option for the full rationale.
+	const isGitProject = (() => {
+		try {
+			return _internals.isGitRepo(directory);
+		} catch {
+			return false;
+		}
+	})();
+
+	// Phase 10: compute cross-phase upstream task IDs for the phase being
+	// decided. The activation gate then verifies each is in git history —
+	// the predecessor-evidence check that replaces the legacy
+	// `commitsObserved >= minCommitsForSignal` floor. See
+	// `decideEpicActivation` for the rationale.
+	const taskPhase = new Map<string, number>();
+	for (const ph of plan.phases) {
+		for (const task of ph.tasks) {
+			taskPhase.set(task.id, ph.id);
+		}
+	}
+	// Phase 14 (B29): filter to PENDING tasks only. A completed task
+	// whose `depends:` field still contains an uncorrected phantom (the
+	// architect typo'd, the task got finished anyway, the typo never got
+	// removed) would otherwise keep the activation gate failing for
+	// every future phase decision. The dep is no longer load-bearing
+	// because the task is already done; we should not penalize future
+	// phases for a stale declaration on a settled task.
+	const currentPhaseTasks = (
+		plan.phases.find((p) => p.id === phase)?.tasks ?? []
+	).filter((t) => t.status !== 'completed');
+	const crossPhaseUpstreamsSet = new Set<string>();
+	const phantomDepsSet = new Set<string>();
+	for (const task of currentPhaseTasks) {
+		for (const dep of task.depends ?? []) {
+			const depPhase = taskPhase.get(dep);
+			if (depPhase === undefined) {
+				// Phase 13 (B20): the architect typed a dep ID that
+				// doesn't resolve to ANY task in the plan — usually an LLM
+				// typo ("1.7" instead of "1.4"). The original Phase 12
+				// fix lumped these into `crossPhaseUpstreams`, which made
+				// the rationale claim a missing CROSS-PHASE upstream
+				// even when the typo was for an intra-phase dep —
+				// sending the architect off to commit a phantom. Track
+				// them separately so the rationale surfaces a dedicated
+				// "phantom dep id" reason that points at the actual fix
+				// (correct the declaration), not a false "wait for the
+				// upstream to commit".
+				phantomDepsSet.add(dep);
+				continue;
+			}
+			if (depPhase < phase) {
+				crossPhaseUpstreamsSet.add(dep);
+			}
+		}
+	}
+	if (phantomDepsSet.size > 0) {
+		// Phase 15 (B34): elevated to criticalWarn so the architect-typo
+		// signal reaches the operator's logs during a live benchmark.
+		// Phantom deps fail the gate closed (Phase 13 B20); without this
+		// the architect sees a demote with no immediate diagnostic.
+		logger.criticalWarn(
+			`[epic_decide_phase] phase ${phase} has dep IDs that don't resolve to any task in the plan (probable architect typo): ${[...phantomDepsSet].join(', ')}. Fix the dep declaration; the gate fails closed until the IDs are corrected.`,
+		);
+	}
+	const crossPhaseUpstreams = [...crossPhaseUpstreamsSet];
+	const phantomDeps = [...phantomDepsSet];
+	// Phase 12 (B10): use the status-bearing variant so we can fail
+	// CLOSED if the git-log read itself broke. The Phase 10 gate is now
+	// the ONLY safety signal (the commit-count floor was retired) — if
+	// the predicate degrades to permissive (`() => true`) on git failure
+	// the way the lane planner's Rule 3 does, the gate would silently
+	// admit unverified parallelism. Instead: on git failure substitute a
+	// fail-closed predicate (`() => false`) so the rationale lists every
+	// upstream as missing and the architect can see the broken state.
+	let isUpstreamCommitted: ((taskId: string) => boolean) | undefined;
+	if (isGitProject) {
+		const evidence = _internals.buildIsUpstreamCommittedWithStatus(directory);
+		isUpstreamCommitted = evidence.gitFailed ? () => false : evidence.predicate;
+	}
+
 	const verdict = _internals.decideEpicActivation(
 		tasks,
 		pairs,
@@ -312,6 +480,10 @@ export async function executeEpicDecidePhase(
 			cochangeNpmiThreshold,
 			cochangeMinCoChanges,
 			extraHotModules,
+			isGitProject,
+			crossPhaseUpstreams,
+			phantomDeps,
+			isUpstreamCommitted,
 		},
 	);
 
@@ -405,6 +577,14 @@ export async function executeEpicRunPhase(
 	} | null = null;
 	let runError: Error | null = null;
 	let runner: InstanceType<typeof _internals.LeanTurboRunner> | null = null;
+	// Note: Rule 3 (cross-batch upstream-commit enforcement) lives in the
+	// architect-facing `lean_turbo_plan_lanes` tool, per the one-path
+	// enforcement principle (commit db00eb8a). `executeEpicRunPhase` is
+	// retained only for composition users + tests; wiring Rule 3 here is
+	// dead code from the architect's perspective. Composition users who
+	// want Rule 3 should construct `LeanTurboRunner` with the
+	// `isUpstreamCommitted` option directly.
+
 	try {
 		runner = new _internals.LeanTurboRunner({
 			directory,

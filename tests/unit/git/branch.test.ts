@@ -49,6 +49,95 @@ describe('Git Branch Module', () => {
 		mockSpawnSync.mockClear();
 	});
 
+	describe('non-interactive enforcement (AGENTS.md #3)', () => {
+		test('gitExec closes stdin so prompts cannot block on TTY input', () => {
+			setupMock({ status: 0, stdout: '.git', stderr: '' });
+
+			branch.isGitRepo(testCwd);
+
+			expect(mockSpawnSync).toHaveBeenCalled();
+			const [, , options] = mockSpawnSync.mock.calls[0] as [
+				string,
+				string[],
+				{ stdio?: unknown },
+			];
+			expect(options.stdio).toEqual(['ignore', 'pipe', 'pipe']);
+		});
+
+		test('gitExec sets GIT_TERMINAL_PROMPT=0 so git itself refuses to prompt', () => {
+			setupMock({ status: 0, stdout: '.git', stderr: '' });
+
+			branch.isGitRepo(testCwd);
+
+			const [, , options] = mockSpawnSync.mock.calls[0] as [
+				string,
+				string[],
+				{ env?: Record<string, string> },
+			];
+			expect(options.env?.GIT_TERMINAL_PROMPT).toBe('0');
+		});
+
+		test('Phase 11 (B1): gitExec prepends -c commit.gpgsign=false -c tag.gpgsign=false to every command', () => {
+			// The headline B1 fix: any host with `commit.gpgsign=true`
+			// globally would otherwise silently fail every Rule 2 commit
+			// (GPG can\'t prompt for a passphrase with stdin closed +
+			// GIT_TERMINAL_PROMPT=0). The `-c` overrides force git to skip
+			// signing for this single invocation, restoring Rule 2's
+			// non-fatal contract.
+			setupMock({ status: 0, stdout: '.git', stderr: '' });
+
+			branch.isGitRepo(testCwd);
+
+			const argv = (mockSpawnSync.mock.calls[0] as [string, string[], unknown])[1];
+			// The -c overrides must precede the subcommand.
+			expect(argv.slice(0, 4)).toEqual([
+				'-c',
+				'commit.gpgsign=false',
+				'-c',
+				'tag.gpgsign=false',
+			]);
+			// And the original subcommand follows.
+			expect(argv[4]).toBe('rev-parse');
+		});
+
+		test('gitExec applies a bounded timeout (AGENTS.md #3)', () => {
+			setupMock({ status: 0, stdout: '.git', stderr: '' });
+
+			branch.isGitRepo(testCwd);
+
+			const [, , options] = mockSpawnSync.mock.calls[0] as [
+				string,
+				string[],
+				{ timeout?: number },
+			];
+			// AGENTS.md #3 requires a bounded timeout on every subprocess.
+			// The exact value is implementation detail; what matters is
+			// that it's finite and positive. Without this, a git operation
+			// could hang indefinitely on a stuck remote, NFS mount, etc.
+			expect(typeof options.timeout).toBe('number');
+			expect(options.timeout).toBeGreaterThan(0);
+			expect(Number.isFinite(options.timeout)).toBe(true);
+		});
+
+		test('gitExec preserves the inherited environment alongside the prompt suppression', () => {
+			setupMock({ status: 0, stdout: '.git', stderr: '' });
+			const sentinelKey = '__GIT_BRANCH_TEST_SENTINEL__';
+			process.env[sentinelKey] = 'present';
+			try {
+				branch.isGitRepo(testCwd);
+				const [, , options] = mockSpawnSync.mock.calls[0] as [
+					string,
+					string[],
+					{ env?: Record<string, string> },
+				];
+				expect(options.env?.[sentinelKey]).toBe('present');
+				expect(options.env?.GIT_TERMINAL_PROMPT).toBe('0');
+			} finally {
+				delete process.env[sentinelKey];
+			}
+		});
+	});
+
 	describe('isGitRepo()', () => {
 		test('returns true when git rev-parse succeeds', () => {
 			setupMock({ status: 0, stdout: '.git', stderr: '' });
@@ -551,8 +640,12 @@ describe('Git Branch Module', () => {
 
 			expect(result.success).toBe(false);
 			expect(result.message).toBe('Cannot reset: unpushed commits');
-			// Verify log command used remote ref for range check (index 3 is the log call)
-			expect(mockSpawnSync.mock.calls[3][1][1]).toContain('origin/main');
+			// Verify log command used remote ref for range check (index 3 is the log call).
+			// Phase 11 prepended `-c commit.gpgsign=false -c tag.gpgsign=false` to
+			// every gitExec invocation, so positional indexing into the argv is
+			// no longer stable. Assert against the joined argv string instead.
+			const logArgv = (mockSpawnSync.mock.calls[3] as [string, string[], unknown])[1];
+			expect(logArgv.join(' ')).toContain('origin/main');
 		});
 
 		test('Detached HEAD -> returns success: false', () => {

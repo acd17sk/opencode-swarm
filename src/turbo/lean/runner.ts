@@ -21,6 +21,7 @@ import type { LeanTurboConfig } from '../../config/schema';
 import { loadFullAutoRunState } from '../../full-auto/state';
 import { acquireLaneLocks, releaseLaneLocks } from '../../parallel/file-locks';
 import { loadPlanJsonOnly } from '../../plan/manager';
+import { criticalWarn } from '../../utils/logger.js';
 import { hasActiveFullAuto, swarmState } from '../../state';
 import type { LaneEvidence } from './evidence';
 import { writeLaneEvidence } from './evidence';
@@ -206,6 +207,19 @@ export class LeanTurboRunner {
 	/** Lean-mode configuration passed at construction. Undefined means use defaults. */
 	private readonly _leanConfig?: LeanTurboConfig;
 
+	/**
+	 * Rule 3 of the greenfield-smart redesign. When supplied, the lane
+	 * planner consults this predicate for cross-batch `depends:` upstream
+	 * tasks (i.e., deps not in the phase batch — typically completed in a
+	 * prior phase). The downstream is parallel-eligible only when its
+	 * cross-batch upstream is committed.
+	 *
+	 * Undefined means legacy behavior (cross-batch deps implicitly
+	 * satisfied). Epic Mode supplies `buildIsUpstreamCommitted(directory)`;
+	 * Lean-Turbo-only callers leave it undefined.
+	 */
+	private readonly _isUpstreamCommitted?: (taskId: string) => boolean;
+
 	constructor(options: {
 		/** Project root directory */
 		directory: string;
@@ -217,10 +231,17 @@ export class LeanTurboRunner {
 		generatedAgentNames?: string[];
 		/** Lean-mode configuration. Falls back to hardcoded defaults if omitted. */
 		leanConfig?: LeanTurboConfig;
+		/**
+		 * Greenfield-smart Rule 3: predicate over cross-batch `depends:`
+		 * upstream tasks. See `_isUpstreamCommitted` for semantics. Epic
+		 * Mode populates this from `buildIsUpstreamCommitted(directory)`.
+		 */
+		isUpstreamCommitted?: (taskId: string) => boolean;
 	}) {
 		this._directory = options.directory;
 		this._sessionID = options.sessionID;
 		this._leanConfig = options.leanConfig;
+		this._isUpstreamCommitted = options.isUpstreamCommitted;
 
 		// Only set _client if explicitly provided (including null).
 		// When omitted entirely, _client stays undefined → fail-open for production
@@ -298,7 +319,10 @@ export class LeanTurboRunner {
 		const leanConfig = this._getLeanConfig(this._leanConfig);
 
 		// Plan lane distribution — type cast needed because Phase (schema) is structurally
-		// wider than PlanPhase (planner) but at runtime all used fields are compatible
+		// wider than PlanPhase (planner) but at runtime all used fields are compatible.
+		// The 6th argument (`isUpstreamCommitted`) enables Rule 3 of the greenfield-smart
+		// redesign — Epic Mode supplies it via the constructor; standalone Lean Turbo
+		// leaves it undefined so legacy cross-batch-dep semantics are preserved.
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const lanePlan: LeanTurboLanePlan =
 			LeanTurboRunner._internals.planLeanTurboLanes(
@@ -307,6 +331,8 @@ export class LeanTurboRunner {
 				// biome-ignore lint/suspicious/noExplicitAny: Phase/PlanPhase structural type mismatch
 				{ phases: plan.phases as any },
 				leanConfig,
+				undefined,
+				this._isUpstreamCommitted,
 			);
 
 		const degradedTasks = lanePlan.degradedTasks.map((d) => d.taskId);
@@ -399,6 +425,14 @@ export class LeanTurboRunner {
 				return await Promise.race([dispatchPromise, timeoutPromise]);
 			} catch (err) {
 				if (err instanceof Error && err.message.includes('timed out')) {
+					// Phase 16 (C1.H1): elevate lane timeout to criticalWarn so
+					// the operator sees lane-dispatch hangs live during a
+					// benchmark. Pre-Phase-16 the timeout was returned to the
+					// caller as a quiet { ok: false, error } with no stderr
+					// trace, making slow-lane diagnosis post-mortem-only.
+					criticalWarn(
+						`[lean-turbo:runner] lane ${lane.laneId} dispatch timed out after ${timeoutMs}ms — coder session may be hung or unreachable. Lane will be marked failed.`,
+					);
 					// Timeout won the race. Track this lane so that when _doDispatch
 					// completes in the background, we can clean up the orphan session
 					// if one was created. We store a sentinel and capture the sessionId
@@ -451,10 +485,11 @@ export class LeanTurboRunner {
 			});
 
 			if (!createResult.data) {
-				return {
-					ok: false,
-					error: `session.create failed: ${typeof createResult.error === 'string' ? createResult.error : JSON.stringify(createResult.error)}`,
-				};
+				const msg = `session.create failed: ${typeof createResult.error === 'string' ? createResult.error : JSON.stringify(createResult.error)}`;
+				// Phase 16 (C1.H1): elevate so the operator sees lane
+				// session-creation failures live.
+				criticalWarn(`[lean-turbo:runner] lane ${lane.laneId} ${msg}`);
+				return { ok: false, error: msg };
 			}
 
 			const sessionId = createResult.data.id;
@@ -473,17 +508,23 @@ export class LeanTurboRunner {
 			});
 
 			if (!promptResult.data) {
+				const msg = `session.prompt failed: ${typeof promptResult.error === 'string' ? promptResult.error : JSON.stringify(promptResult.error)}`;
+				// Phase 16 (C1.H1): elevate so the operator sees lane
+				// prompt-send failures live.
+				criticalWarn(`[lean-turbo:runner] lane ${lane.laneId} ${msg}`);
 				// Clean up the orphaned session
 				session.delete({ path: { id: sessionId } }).catch(() => {});
-				return {
-					ok: false,
-					error: `session.prompt failed: ${typeof promptResult.error === 'string' ? promptResult.error : JSON.stringify(promptResult.error)}`,
-				};
+				return { ok: false, error: msg };
 			}
 
 			return { ok: true, sessionId };
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
+			// Phase 16 (C1.H1): elevate _doDispatch outer catch so the
+			// operator sees unexpected lane-dispatch exceptions live.
+			criticalWarn(
+				`[lean-turbo:runner] lane ${lane.laneId} _doDispatch threw: ${msg}`,
+			);
 			return { ok: false, error: msg };
 		}
 	}

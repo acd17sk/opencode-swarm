@@ -1,5 +1,33 @@
 /**
- * Execute git command safely
+ * Execute git command safely.
+ *
+ * Non-interactive enforcement (AGENTS.md #3): three defenses ensure git
+ * cannot block on a TTY prompt — GPG passphrase, credential helper,
+ * "are you sure?" rebase confirmation, etc.
+ *
+ *  1. `stdio: ['ignore', ...]` closes the child's stdin. A prompt has
+ *     no input source, so git/GPG/credential-helper sees EOF.
+ *  2. `GIT_TERMINAL_PROMPT=0` tells git itself to refuse any prompt
+ *     attempt outright rather than falling back to the controlling
+ *     terminal (some prompts route through git, not the child).
+ *  3. **Phase 11 (B1):** `-c commit.gpgsign=false -c tag.gpgsign=false`
+ *     prepended to every command. Closes the SILENT-failure path where
+ *     a developer/CI host has `commit.gpgsign=true` globally and no GPG
+ *     agent — without (3), defenses (1)+(2) merely turn the prompt-
+ *     hang into an immediate non-zero exit, which `commitTaskCompletion`
+ *     catches as `commit-failed` non-fatally. Result: every Rule 2
+ *     commit silently fails, predecessor-evidence (Phase 10) never
+ *     accumulates, every phase demotes. (3) forces the underlying git
+ *     subcommand to skip signing entirely. Tag-sign is included as
+ *     belt-and-suspenders for future `git tag` callers.
+ *
+ *     This is the SINGLE source of truth for non-interactive git in this
+ *     codebase. Adding it here covers `commitAllowEmpty` and every other
+ *     caller (current and future) uniformly.
+ *
+ * Without these, hot-path callers like Rule 2's `commitTaskCompletion`
+ * would hang for the full 30 s timeout on every task completion in any
+ * environment with `commit.gpgsign = true` and no GPG agent.
  */
 declare function gitExec(args: string[], cwd: string): string;
 /**

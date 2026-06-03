@@ -46,6 +46,24 @@ export declare function loadEpicSessionState(directory: string, sessionID: strin
 export declare function saveEpicSessionState(directory: string, state: EpicSessionState): void;
 /** True iff epic mode is currently active for the given session. */
 export declare function isEpicModeActive(directory: string, sessionID: string): boolean;
+/**
+ * True iff epic mode is currently active for ANY session in the project.
+ *
+ * Use this when a code path needs to know "is the project running under
+ * Epic Mode right now" without caring which session toggled it. The
+ * session-scoped `isEpicModeActive` answers "did THIS session toggle it" —
+ * a different question with a different answer.
+ *
+ * The architect's session enables Epic via `/swarm epic on`; sub-agents
+ * (coders, reviewers) dispatched through the `Task` tool run in their own
+ * sessions and have no record of that toggle. Asking the project-scoped
+ * check is the only correct way to honor Epic Mode from those flows.
+ * Rule 2's auto-commit (centralized in Phase 5) is the canonical caller.
+ *
+ * Fail-closed: returns `false` on unreadable state, matching the rest of
+ * this module's defaults.
+ */
+export declare function isEpicModeActiveForProject(directory: string): boolean;
 /** Enable epic mode for the session; records `enabledAt`. */
 export declare function enableEpicMode(directory: string, sessionID: string): void;
 /** Disable epic mode for the session; records `disabledAt`. */

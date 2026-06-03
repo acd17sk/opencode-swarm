@@ -108,8 +108,17 @@ export interface LeanTurboLanePlan {
  * @param plan - The full plan object (from .swarm/plan.json)
  * @param config - Lean Turbo configuration
  * @param scopes - Optional pre-loaded scopes map (taskId -> file paths)
+ * @param isUpstreamCommitted - Optional Rule-3 predicate (greenfield-smart
+ *        redesign). When supplied, a cross-batch dependency (a `depends:`
+ *        upstream not present in this planning call's task set — typically
+ *        completed in a prior phase) is treated as satisfied **only** if
+ *        the predicate returns `true`. Production callers build this from
+ *        `buildIsUpstreamCommitted(directory)` so the check resolves to
+ *        "is there a `swarm(task <id>)` commit in HEAD". When undefined
+ *        the planner falls back to its legacy behavior (cross-batch deps
+ *        are implicitly satisfied) for backward compatibility.
  * @returns Complete lane plan with lanes, degraded tasks, and counters
  */
 export declare function planLeanTurboLanes(directory: string, phaseNumber: number, plan: {
     phases: PlanPhase[];
-}, config: LeanTurboConfig, scopes?: Record<string, string[]>): LeanTurboLanePlan;
+}, config: LeanTurboConfig, scopes?: Record<string, string[]>, isUpstreamCommitted?: (taskId: string) => boolean): LeanTurboLanePlan;

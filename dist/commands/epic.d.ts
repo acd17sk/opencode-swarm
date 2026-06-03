@@ -16,6 +16,7 @@
  * `epic_run_phase` tool is the architect-facing entry that gates execution.
  */
 import { loadPluginConfigWithMeta } from '../config/index.js';
+import { isGitRepo } from '../git/branch.js';
 import { loadPlanJsonOnly } from '../plan/manager.js';
 import { getAgentSession } from '../state.js';
 import { decideEpicActivation } from '../turbo/epic/activation.js';
@@ -45,5 +46,6 @@ export declare const _internals: {
     loadCalibrationState: typeof loadCalibrationState;
     isCalibrationStateUnreadable: typeof isCalibrationStateUnreadable;
     readDivergenceHistory: typeof readDivergenceHistory;
+    isGitRepo: typeof isGitRepo;
 };
 export declare function handleEpicCommand(directory: string, args: string[], sessionID: string): Promise<string>;

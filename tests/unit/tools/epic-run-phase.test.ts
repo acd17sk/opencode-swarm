@@ -158,6 +158,15 @@ afterEach(() => {
 		realInternals.effectiveActivationThreshold;
 	_internals.effectiveHotModules = realInternals.effectiveHotModules;
 	_internals.readDivergenceHistory = realInternals.readDivergenceHistory;
+	// Phase 18 (δ HIGH): restore the Phase 12 additions to the seam.
+	// Pre-Phase-18 the Phase 12 tests mutated `isGitRepo` and
+	// `buildIsUpstreamCommittedWithStatus` without restoration — any test
+	// added before them that needed the real implementation would silently
+	// pick up the stubs.
+	_internals.isGitRepo = realInternals.isGitRepo;
+	_internals.buildIsUpstreamCommittedWithStatus =
+		realInternals.buildIsUpstreamCommittedWithStatus;
+	_internals.buildIsUpstreamCommitted = realInternals.buildIsUpstreamCommitted;
 });
 
 describe('executeEpicRunPhase — failure modes', () => {
@@ -890,5 +899,503 @@ describe('executeEpicDecidePhase — transparent decide-only path', () => {
 		});
 		expect(result.reason).toBe('scopes-missing');
 		expect(stub.evidenceAppends).toBe(0);
+	});
+});
+
+describe('executeEpicDecidePhase — Phase 12 fixes from adversarial review', () => {
+	test('B11: requesting a phase number not in the plan returns reason="no-phase" instead of vacuously passing', async () => {
+		// Pre-Phase-12 this slipped through silently — `currentPhaseTasks`
+		// was empty, `crossPhaseUpstreams` empty, gate passed vacuously,
+		// and the verdict was "promote" for a phase that doesn't exist.
+		stub.plan = {
+			phases: [
+				{
+					id: 1,
+					name: 'P1',
+					tasks: [
+						{
+							id: '1.1',
+							description: 'a',
+							status: 'pending',
+							files_touched: ['src/a.ts'],
+						},
+					],
+				},
+			],
+		};
+		const result = await executeEpicDecidePhase({
+			directory: '/fake',
+			phase: 99,
+			sessionID: 's1',
+		});
+		expect(result.success).toBe(false);
+		expect(result.reason).toBe('no-phase');
+		expect(result.message).toContain('99');
+		expect(result.message).toContain('Available phases: 1');
+		// Never reached the gate.
+		expect(stub.evidenceAppends).toBe(0);
+	});
+
+	test('B9/B20: phantom dep IDs (architect typo) surface as phantomDeps NOT crossPhaseUpstreams', async () => {
+		// Phase 13 refinement of B9: phantom deps were originally lumped
+		// into `crossPhaseUpstreams`, which made the rationale claim a
+		// missing cross-phase upstream even when the typo was for an
+		// intra-phase dep. Now phantoms ride a separate `phantomDeps`
+		// channel so the architect-facing reason can point at the
+		// actual fix (correct the declaration), not a phantom upstream.
+		stub.plan = {
+			phases: [
+				{
+					id: 1,
+					name: 'P1',
+					tasks: [
+						{
+							id: '1.1',
+							description: 'a',
+							status: 'pending',
+							files_touched: ['src/a.ts'],
+						},
+					],
+				},
+				{
+					id: 2,
+					name: 'P2',
+					tasks: [
+						{
+							id: '2.1',
+							description: 'b',
+							status: 'pending',
+							files_touched: ['src/b.ts'],
+							// Phantom dep — task 1.7 does not exist.
+							depends: ['1.7'],
+						} as unknown as {
+							id: string;
+							description: string;
+							status: string;
+							files_touched: string[];
+						},
+					],
+				},
+			],
+		};
+		_internals.isGitRepo = (() => true) as never;
+		_internals.buildIsUpstreamCommittedWithStatus = (() => ({
+			predicate: () => false,
+			gitFailed: false,
+		})) as never;
+		let capturedOptions: {
+			crossPhaseUpstreams?: readonly string[];
+			phantomDeps?: readonly string[];
+		} | null = null;
+		_internals.decideEpicActivation = ((
+			_tasks: unknown,
+			_pairs: unknown,
+			_commits: unknown,
+			options: {
+				crossPhaseUpstreams?: readonly string[];
+				phantomDeps?: readonly string[];
+			},
+		) => {
+			capturedOptions = options;
+			return stub.verdict;
+		}) as never;
+
+		await executeEpicDecidePhase({
+			directory: '/fake',
+			phase: 2,
+			sessionID: 's1',
+		});
+
+		expect(capturedOptions).not.toBeNull();
+		// Phantom dep goes to phantomDeps, NOT crossPhaseUpstreams.
+		expect(capturedOptions?.phantomDeps).toContain('1.7');
+		expect(capturedOptions?.crossPhaseUpstreams).not.toContain('1.7');
+	});
+
+	test('B20: intra-phase phantom typo does NOT mislabel as a missing cross-phase upstream', async () => {
+		// Concrete adversarial scenario: phase 2 task 2.1 declares
+		// depends: ['2.99'] (typo for an intra-phase task that doesn't
+		// exist). Pre-Phase-13: rationale would say "missing cross-phase
+		// upstream 2.99" — sending the architect to commit a phantom in
+		// an earlier phase. Post-Phase-13: phantomDeps contains 2.99
+		// and the blocking reason cites it as a typo to fix.
+		stub.plan = {
+			phases: [
+				{
+					id: 1,
+					name: 'P1',
+					tasks: [
+						{
+							id: '1.1',
+							description: 'a',
+							status: 'pending',
+							files_touched: ['src/a.ts'],
+						},
+					],
+				},
+				{
+					id: 2,
+					name: 'P2',
+					tasks: [
+						{
+							id: '2.1',
+							description: 'b',
+							status: 'pending',
+							files_touched: ['src/b.ts'],
+							depends: ['2.99'], // intra-phase phantom typo
+						} as unknown as {
+							id: string;
+							description: string;
+							status: string;
+							files_touched: string[];
+						},
+					],
+				},
+			],
+		};
+		_internals.isGitRepo = (() => true) as never;
+		_internals.buildIsUpstreamCommittedWithStatus = (() => ({
+			predicate: () => true,
+			gitFailed: false,
+		})) as never;
+		let capturedOptions: {
+			crossPhaseUpstreams?: readonly string[];
+			phantomDeps?: readonly string[];
+		} | null = null;
+		_internals.decideEpicActivation = ((
+			_tasks: unknown,
+			_pairs: unknown,
+			_commits: unknown,
+			options: {
+				crossPhaseUpstreams?: readonly string[];
+				phantomDeps?: readonly string[];
+			},
+		) => {
+			capturedOptions = options;
+			return stub.verdict;
+		}) as never;
+
+		await executeEpicDecidePhase({
+			directory: '/fake',
+			phase: 2,
+			sessionID: 's1',
+		});
+
+		// The intra-phase phantom MUST NOT be reported as a
+		// cross-phase upstream — that's the misattribution the B20
+		// fix targets.
+		expect(capturedOptions?.crossPhaseUpstreams).not.toContain('2.99');
+		expect(capturedOptions?.phantomDeps).toContain('2.99');
+	});
+
+	test('B10: when git log read fails, executeEpicDecidePhase passes a fail-CLOSED predicate (not permissive)', async () => {
+		// Pre-Phase-12 fix: `buildIsUpstreamCommitted` degraded to
+		// `() => true` on git failure, silently admitting every phase as
+		// "all upstreams committed". For Phase 10 (the only safety
+		// signal post commit-floor retirement) this inverted the polarity.
+		// Fix: detect the gitFailed flag and substitute `() => false` so
+		// the rationale honestly reports the upstreams as missing.
+		stub.plan = {
+			phases: [
+				{
+					id: 1,
+					name: 'P1',
+					tasks: [
+						{
+							id: '1.1',
+							description: 'a',
+							status: 'pending',
+							files_touched: ['src/a.ts'],
+						},
+					],
+				},
+				{
+					id: 2,
+					name: 'P2',
+					tasks: [
+						{
+							id: '2.1',
+							description: 'b',
+							status: 'pending',
+							files_touched: ['src/b.ts'],
+							depends: ['1.1'],
+						} as unknown as {
+							id: string;
+							description: string;
+							status: string;
+							files_touched: string[];
+						},
+					],
+				},
+			],
+		};
+		_internals.isGitRepo = (() => true) as never;
+		// Simulate git breakage: status reports gitFailed: true, predicate
+		// would have been the permissive `() => true` under old code.
+		_internals.buildIsUpstreamCommittedWithStatus = (() => ({
+			predicate: () => true,
+			gitFailed: true,
+		})) as never;
+		let passedPredicate: ((id: string) => boolean) | undefined;
+		_internals.decideEpicActivation = ((
+			_tasks: unknown,
+			_pairs: unknown,
+			_commits: unknown,
+			options: { isUpstreamCommitted?: (id: string) => boolean },
+		) => {
+			passedPredicate = options.isUpstreamCommitted;
+			return stub.verdict;
+		}) as never;
+
+		await executeEpicDecidePhase({
+			directory: '/fake',
+			phase: 2,
+			sessionID: 's1',
+		});
+
+		// The predicate handed to the activation gate must NOT be the
+		// permissive `() => true` from the broken git environment.
+		expect(passedPredicate).toBeDefined();
+		expect(passedPredicate?.('1.1')).toBe(false);
+		expect(passedPredicate?.('anything')).toBe(false);
+	});
+
+	test('B10 happy path: when git log read succeeds, the real predicate is passed through unchanged', async () => {
+		stub.plan = {
+			phases: [
+				{
+					id: 1,
+					name: 'P1',
+					tasks: [
+						{
+							id: '1.1',
+							description: 'a',
+							status: 'pending',
+							files_touched: ['src/a.ts'],
+						},
+					],
+				},
+				{
+					id: 2,
+					name: 'P2',
+					tasks: [
+						{
+							id: '2.1',
+							description: 'b',
+							status: 'pending',
+							files_touched: ['src/b.ts'],
+							depends: ['1.1'],
+						} as unknown as {
+							id: string;
+							description: string;
+							status: string;
+							files_touched: string[];
+						},
+					],
+				},
+			],
+		};
+		_internals.isGitRepo = (() => true) as never;
+		_internals.buildIsUpstreamCommittedWithStatus = (() => ({
+			predicate: (id: string) => id === '1.1', // 1.1 IS committed, others not
+			gitFailed: false,
+		})) as never;
+		let passedPredicate: ((id: string) => boolean) | undefined;
+		_internals.decideEpicActivation = ((
+			_tasks: unknown,
+			_pairs: unknown,
+			_commits: unknown,
+			options: { isUpstreamCommitted?: (id: string) => boolean },
+		) => {
+			passedPredicate = options.isUpstreamCommitted;
+			return stub.verdict;
+		}) as never;
+
+		await executeEpicDecidePhase({
+			directory: '/fake',
+			phase: 2,
+			sessionID: 's1',
+		});
+
+		expect(passedPredicate?.('1.1')).toBe(true);
+		expect(passedPredicate?.('1.2')).toBe(false);
+	});
+
+	test('Phase 17 (E.1): a phase whose `tasks: []` is empty ⇒ reason="phase-empty", no verdict computed', async () => {
+		// Pre-Phase-17 this slipped through: the B35 guard required
+		// `phaseInPlan.tasks.length > 0`, so an empty `tasks: []` (an
+		// architect-created phase header that was never populated)
+		// fell through to a vacuous-pass `promote` — the same bug B35
+		// was supposed to prevent. Phase 17 surfaces it as its own
+		// reason so the architect either populates the phase or
+		// removes the empty header.
+		stub.plan = {
+			phases: [
+				{
+					id: 1,
+					name: 'P1',
+					tasks: [],
+				},
+			],
+		};
+		let decideCalled = false;
+		_internals.decideEpicActivation = (() => {
+			decideCalled = true;
+			return stub.verdict;
+		}) as never;
+
+		const result = await executeEpicDecidePhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+
+		expect(result.success).toBe(false);
+		expect(result.reason).toBe('phase-empty');
+		expect(result.message).toContain('no tasks');
+		// The decision math was never invoked — the empty phase doesn't
+		// silently produce a `promote`.
+		expect(decideCalled).toBe(false);
+	});
+
+	test('B35: every task in the requested phase already completed ⇒ reason="phase-already-complete", no verdict computed', async () => {
+		// Pre-Phase-15 this slipped through silently: B29's filter
+		// produced an empty pending set → vacuous-pass on greenfield
+		// (combined with p/hot passing on the whole-plan task set) →
+		// verdict `promote`. The architect then called
+		// `lean_turbo_plan_lanes` and got an empty lane plan with no
+		// diagnostic. Correct answer is an explicit "phase is done".
+		stub.plan = {
+			phases: [
+				{
+					id: 1,
+					name: 'P1',
+					tasks: [
+						{
+							id: '1.1',
+							description: 'a',
+							status: 'completed',
+							files_touched: ['src/a.ts'],
+						},
+						{
+							id: '1.2',
+							description: 'b',
+							status: 'completed',
+							files_touched: ['src/b.ts'],
+						},
+					],
+				},
+			],
+		};
+		let decideCalled = false;
+		_internals.decideEpicActivation = (() => {
+			decideCalled = true;
+			return stub.verdict;
+		}) as never;
+
+		const result = await executeEpicDecidePhase({
+			directory: '/fake',
+			phase: 1,
+			sessionID: 's1',
+		});
+
+		expect(result.success).toBe(false);
+		expect(result.reason).toBe('phase-already-complete');
+		expect(result.message).toContain('no pending tasks');
+		// Decision math was never invoked — saves CPU and prevents the
+		// misleading promote verdict.
+		expect(decideCalled).toBe(false);
+		// Never reached the evidence-append step.
+		expect(stub.evidenceAppends).toBe(0);
+	});
+
+	test('B29: completed tasks in the current phase contribute NO deps to the activation gate', async () => {
+		// A completed task whose `depends:` contains a phantom (typo
+		// the architect never fixed) would, pre-Phase-14, keep the
+		// gate failing for every future phase decision. The task is
+		// already done — its declaration is no longer load-bearing.
+		// Phase 14 filters to pending tasks before collecting deps.
+		stub.plan = {
+			phases: [
+				{
+					id: 1,
+					name: 'P1',
+					tasks: [
+						{
+							id: '1.1',
+							description: 'a',
+							status: 'pending',
+							files_touched: ['src/a.ts'],
+						},
+					],
+				},
+				{
+					id: 2,
+					name: 'P2',
+					tasks: [
+						{
+							// Completed task with a phantom dep — should
+							// contribute NOTHING.
+							id: '2.1',
+							description: 'done',
+							status: 'completed',
+							files_touched: ['src/done.ts'],
+							depends: ['1.7'],
+						} as unknown as {
+							id: string;
+							description: string;
+							status: string;
+							files_touched: string[];
+						},
+						{
+							// Pending task with a real cross-phase dep —
+							// should be the only thing the gate sees.
+							id: '2.2',
+							description: 'b',
+							status: 'pending',
+							files_touched: ['src/b.ts'],
+							depends: ['1.1'],
+						} as unknown as {
+							id: string;
+							description: string;
+							status: string;
+							files_touched: string[];
+						},
+					],
+				},
+			],
+		};
+		_internals.isGitRepo = (() => true) as never;
+		_internals.buildIsUpstreamCommittedWithStatus = (() => ({
+			predicate: () => true,
+			gitFailed: false,
+		})) as never;
+		let capturedOptions: {
+			crossPhaseUpstreams?: readonly string[];
+			phantomDeps?: readonly string[];
+		} | null = null;
+		_internals.decideEpicActivation = ((
+			_tasks: unknown,
+			_pairs: unknown,
+			_commits: unknown,
+			options: {
+				crossPhaseUpstreams?: readonly string[];
+				phantomDeps?: readonly string[];
+			},
+		) => {
+			capturedOptions = options;
+			return stub.verdict;
+		}) as never;
+
+		await executeEpicDecidePhase({
+			directory: '/fake',
+			phase: 2,
+			sessionID: 's1',
+		});
+
+		// Phantom from completed 2.1 must NOT appear.
+		expect(capturedOptions?.phantomDeps).not.toContain('1.7');
+		// Real dep from pending 2.2 DOES appear.
+		expect(capturedOptions?.crossPhaseUpstreams).toContain('1.1');
 	});
 });

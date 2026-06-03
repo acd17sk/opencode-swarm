@@ -24,6 +24,7 @@
  */
 import type { ToolDefinition } from '@opencode-ai/plugin/tool';
 import { loadPluginConfigWithMeta as loadPluginConfigWithMeta_import } from '../config/index.js';
+import { isGitRepo as isGitRepo_import } from '../git/branch.js';
 import { loadPlanJsonOnly as loadPlanJsonOnly_import } from '../plan/manager.js';
 import type { EpicActivationVerdict } from '../turbo/epic/activation.js';
 import { decideEpicActivation as decideEpicActivation_import } from '../turbo/epic/activation.js';
@@ -33,6 +34,7 @@ import { getCoChangeData as getCoChangeData_import } from '../turbo/epic/cochang
 import { readDivergenceHistory as readDivergenceHistory_import } from '../turbo/epic/divergence-recorder.js';
 import { appendPromotionEvidence as appendPromotionEvidence_import } from '../turbo/epic/promotion-evidence.js';
 import { isEpicModeActive as isEpicModeActive_import, recordEpicDecision as recordEpicDecision_import } from '../turbo/epic/state.js';
+import { buildIsUpstreamCommitted as buildIsUpstreamCommitted_import, buildIsUpstreamCommittedWithStatus as buildIsUpstreamCommittedWithStatus_import } from '../turbo/epic/upstream-commits.js';
 import { readTaskScopes as readTaskScopes_import } from '../turbo/lean/conflicts.js';
 import type { LaneResult } from '../turbo/lean/runner.js';
 import { LeanTurboRunner as LeanTurboRunner_import } from '../turbo/lean/runner.js';
@@ -55,6 +57,22 @@ export interface EpicRunPhaseResult {
      *  - `'promoted'` — epic chose parallel and Lean Turbo ran.
      *  - `'epic-mode-not-active'` — the session has not toggled Epic Mode.
      *  - `'no-plan'` — `.swarm/plan.json` is missing.
+     *  - `'no-phase'` — the requested phase number isn't present in the
+     *    plan. Phase 12 (B11): without this, an unknown phase silently
+     *    produced `currentPhaseTasks = []` and vacuously-passed the
+     *    activation gate — promoting a phase that doesn't exist.
+     *  - `'phase-already-complete'` — every task in the requested phase
+     *    is already `status: 'completed'`. Phase 15 (B35): without this,
+     *    re-running an already-completed phase silently produced a
+     *    vacuous-pass `promote` verdict; the architect then called
+     *    `lean_turbo_plan_lanes` and got an empty plan with no
+     *    diagnostic.
+     *  - `'phase-empty'` — the requested phase exists but its `tasks`
+     *    array is empty (architect created a phase header but never
+     *    populated it, or a council edit removed every task). Phase 17
+     *    (E.1): the Phase 15 B35 guard only fired when at least one
+     *    completed task existed; an empty `tasks: []` slipped through to
+     *    the same vacuous-pass `promote` B35 was supposed to prevent.
      *  - `'lean-runner-error'` — Lean Turbo threw during promoted execution.
      *  - `'scopes-missing'` — one or more pending tasks in the phase have
      *    neither a declared scope file on disk nor `files_touched` in
@@ -62,7 +80,7 @@ export interface EpicRunPhaseResult {
      *    parallel lanes; without it the dispatch returns empty lanes and
      *    the parallelization promise is silently broken. The architect
      *    must call `declare_scope` for each missing task and then
-     *    re-invoke `epic_run_phase`.
+     *    re-invoke `epic_decide_phase`.
      */
     reason: string;
     /** Set when `reason === 'lean-runner-error'`. */
@@ -82,6 +100,7 @@ export declare const _internals: {
     loadPlanJsonOnly: typeof loadPlanJsonOnly_import;
     getCoChangeData: typeof getCoChangeData_import;
     decideEpicActivation: typeof decideEpicActivation_import;
+    isGitRepo: typeof isGitRepo_import;
     appendPromotionEvidence: typeof appendPromotionEvidence_import;
     recordEpicDecision: typeof recordEpicDecision_import;
     isEpicModeActive: typeof isEpicModeActive_import;
@@ -93,6 +112,8 @@ export declare const _internals: {
     effectiveHotModules: typeof effectiveHotModules_import;
     readDivergenceHistory: typeof readDivergenceHistory_import;
     LeanTurboRunner: typeof LeanTurboRunner_import;
+    buildIsUpstreamCommitted: typeof buildIsUpstreamCommitted_import;
+    buildIsUpstreamCommittedWithStatus: typeof buildIsUpstreamCommittedWithStatus_import;
 };
 /**
  * Decide-only path: runs stages 1-9 of the phase flow (preflight + calibration
@@ -108,8 +129,15 @@ export declare const _internals: {
  * Returns the same EpicRunPhaseResult shape with:
  *  - reason: 'decided'  → verdict is promote, caller may dispatch.
  *  - reason: 'demoted'  → verdict is demote, caller falls back to serial.
- *  - reason: 'epic-mode-not-active' / 'no-plan' / 'scopes-missing' /
- *    'epic-state-unreadable' → error, see fields.
+ *
+ * Error / non-decision reasons (all set success: false):
+ *  - 'epic-mode-not-active' — the session has not toggled Epic Mode.
+ *  - 'no-plan' — `.swarm/plan.json` is missing.
+ *  - 'no-phase' (Phase 12 B11) — the requested phase number isn't in the plan.
+ *  - 'phase-empty' (Phase 17 E.1) — phase exists but has zero tasks.
+ *  - 'phase-already-complete' (Phase 15 B35) — every task already completed.
+ *  - 'scopes-missing' — one or more pending tasks lack declared scope.
+ *  - 'epic-state-unreadable' — `.swarm/epic-state.json` is corrupt.
  */
 export declare function executeEpicDecidePhase(args: EpicRunPhaseArgs): Promise<EpicRunPhaseResult>;
 /**

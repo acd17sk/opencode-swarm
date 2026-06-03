@@ -185,6 +185,15 @@ function getValidatedFiles(
  * @param plan - The full plan object (from .swarm/plan.json)
  * @param config - Lean Turbo configuration
  * @param scopes - Optional pre-loaded scopes map (taskId -> file paths)
+ * @param isUpstreamCommitted - Optional Rule-3 predicate (greenfield-smart
+ *        redesign). When supplied, a cross-batch dependency (a `depends:`
+ *        upstream not present in this planning call's task set — typically
+ *        completed in a prior phase) is treated as satisfied **only** if
+ *        the predicate returns `true`. Production callers build this from
+ *        `buildIsUpstreamCommitted(directory)` so the check resolves to
+ *        "is there a `swarm(task <id>)` commit in HEAD". When undefined
+ *        the planner falls back to its legacy behavior (cross-batch deps
+ *        are implicitly satisfied) for backward compatibility.
  * @returns Complete lane plan with lanes, degraded tasks, and counters
  */
 export function planLeanTurboLanes(
@@ -193,6 +202,7 @@ export function planLeanTurboLanes(
 	plan: { phases: PlanPhase[] },
 	config: LeanTurboConfig,
 	scopes?: Record<string, string[]>,
+	isUpstreamCommitted?: (taskId: string) => boolean,
 ): LeanTurboLanePlan {
 	const phase = plan.phases.find((p) => p.id === phaseNumber);
 
@@ -378,11 +388,26 @@ export function planLeanTurboLanes(
 
 	// Helper: check if all dependencies of a task are already assigned
 	// A dependency is satisfied if it's in assignedTasks (either serialized or in a lane)
+	//
+	// Rule 3 of the greenfield-smart redesign: when `isUpstreamCommitted` is
+	// supplied, an out-of-batch dependency (a `depends:` upstream from a
+	// prior phase, i.e. not in `taskMap`) must be present in git history
+	// before its downstream is fan-out-eligible. Without the predicate the
+	// planner keeps its legacy behavior — out-of-batch deps are implicitly
+	// satisfied. This makes Rule 3 strictly opt-in: callers that don't
+	// supply the predicate observe no behavior change.
 	const allDependenciesSatisfied = (task: ClassifiedTask): boolean => {
 		const deps = task.task.depends ?? [];
 		for (const dep of deps) {
-			// Only check dependencies that exist in our task set
-			if (taskMap.has(dep) && !assignedTasks.has(dep)) {
+			if (taskMap.has(dep)) {
+				// In-batch dep: must already be assigned to an earlier wave.
+				if (!assignedTasks.has(dep)) {
+					return false;
+				}
+			} else if (isUpstreamCommitted && !isUpstreamCommitted(dep)) {
+				// Out-of-batch dep with Rule 3 active: must be committed.
+				// When the predicate is absent we preserve legacy semantics
+				// (cross-batch deps assumed satisfied).
 				return false;
 			}
 		}
@@ -599,6 +624,71 @@ export function planLeanTurboLanes(
 	// 2. Within each wave, tasks are added to lanes in that sorted order
 	// 3. Final lexicographic sort was removed to preserve dependency ordering
 
+	// Rule 3 leftover-cleanup. When `isUpstreamCommitted` rejects a task's
+	// cross-batch dep, `getReadyTasks()` will keep skipping that task forever
+	// (the dep isn't going to commit during this dispatch) and the wave loop
+	// will eventually terminate with the task unassigned. We must surface
+	// those — silently dropping a planned task is the worst possible
+	// outcome.
+	//
+	// Reason attribution matters: a task can be left over because (a) a
+	// cross-batch upstream wasn't committed (Rule-3 specific) OR (b) an
+	// in-batch upstream wasn't assigned to a wave (already-degraded /
+	// already-serialized / cycle-broken). Attributing every leftover to
+	// Rule 3 misleads the architect into chasing the wrong fix. So we
+	// inspect each leftover's deps and choose the most-specific reason.
+	//
+	// Skipped when the predicate is not supplied (legacy Lean Turbo path)
+	// because legacy semantics guarantee no leftovers from the dep-check
+	// branch.
+	if (isUpstreamCommitted) {
+		for (const classified of sortedTasks) {
+			if (assignedTasks.has(classified.task.id)) continue;
+			const deps = classified.task.depends ?? [];
+			const uncommittedCrossBatch: string[] = [];
+			const unassignedInBatch: string[] = [];
+			for (const dep of deps) {
+				if (taskMap.has(dep)) {
+					if (!assignedTasks.has(dep)) unassignedInBatch.push(dep);
+				} else if (!isUpstreamCommitted(dep)) {
+					uncommittedCrossBatch.push(dep);
+				}
+			}
+			let reason: string;
+			if (uncommittedCrossBatch.length > 0) {
+				// Rule-3 specific reason; list the offending deps so the
+				// architect can commit them and re-run.
+				const sample = uncommittedCrossBatch.slice(0, 3).join(', ');
+				const more =
+					uncommittedCrossBatch.length > 3
+						? `, +${uncommittedCrossBatch.length - 3} more`
+						: '';
+				reason = `cross-batch upstream not committed (greenfield-smart Rule 3): ${sample}${more}`;
+			} else if (unassignedInBatch.length > 0) {
+				// In-batch dep was never assigned (degraded/serialized/cycle).
+				// Surface that instead of mislabeling as Rule-3.
+				const sample = unassignedInBatch.slice(0, 3).join(', ');
+				const more =
+					unassignedInBatch.length > 3
+						? `, +${unassignedInBatch.length - 3} more`
+						: '';
+				reason = `unresolved in-batch dependency: ${sample}${more}`;
+			} else {
+				// No identifiable blocker — should be unreachable. Surface
+				// generically so the task is never silently dropped.
+				reason = 'planning leftover (no identifiable blocker)';
+			}
+			degradedTasks.push({
+				taskId: classified.task.id,
+				reason,
+				files: classified.files,
+				requiredMode: 'balanced',
+			});
+			assignedTasks.add(classified.task.id);
+			taskToLane.set(classified.task.id, -1);
+		}
+	}
+
 	// Generate degradation summary if all tasks degraded
 	let degradationSummary: string | undefined;
 	if (
@@ -606,7 +696,17 @@ export function planLeanTurboLanes(
 		degradedTasks.length + serializedTasks.length === pendingTasks.length
 	) {
 		const reasons = Array.from(new Set(degradedTasks.map((t) => t.reason)));
-		degradationSummary = `All ${pendingTasks.length} tasks degraded. Reasons: ${reasons.join(', ')}. Consider running in standard (serial) mode.`;
+		const rule3Count = degradedTasks.filter((t) =>
+			t.reason.includes('greenfield-smart Rule 3'),
+		).length;
+		// If Rule-3 dominates the degradations, lead with a targeted
+		// remediation — "consider running in serial mode" is misleading when
+		// the actual fix is "ensure upstream phases produced git commits".
+		if (rule3Count > 0 && rule3Count >= degradedTasks.length / 2) {
+			degradationSummary = `All ${pendingTasks.length} tasks degraded. ${rule3Count} blocked by greenfield-smart Rule 3 — cross-batch upstream(s) not in git history. Remediation: verify Epic Mode commit-on-completion is succeeding for upstream phases, or commit those tasks manually before re-running.`;
+		} else {
+			degradationSummary = `All ${pendingTasks.length} tasks degraded. Reasons: ${reasons.join(', ')}. Consider running in standard (serial) mode.`;
+		}
 	}
 
 	// Build counters

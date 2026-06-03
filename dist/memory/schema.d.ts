@@ -46,8 +46,8 @@ export declare const MemorySourceSchema: z.ZodObject<{
         manual: "manual";
         test: "test";
         tool: "tool";
-        user: "user";
         commit: "commit";
+        user: "user";
         repo: "repo";
         web: "web";
     }>;
@@ -105,8 +105,8 @@ export declare const MemoryRecordSchema: z.ZodObject<{
             manual: "manual";
             test: "test";
             tool: "tool";
-            user: "user";
             commit: "commit";
+            user: "user";
             repo: "repo";
             web: "web";
         }>;
@@ -183,8 +183,8 @@ export declare const MemoryProposalSchema: z.ZodObject<{
                 manual: "manual";
                 test: "test";
                 tool: "tool";
-                user: "user";
                 commit: "commit";
+                user: "user";
                 repo: "repo";
                 web: "web";
             }>;

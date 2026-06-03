@@ -1124,8 +1124,17 @@ export async function advanceTaskStateAndPersist(
 	try {
 		await updateTaskStatus(directory, taskId, planStatus);
 	} catch (err) {
-		logger.warn(
-			`[advanceTaskStateAndPersist] persist ${taskId} → ${planStatus} failed (in-memory state still advanced): ${err instanceof Error ? err.message : String(err)}`,
+		// Phase 17 (D.V1): elevated to criticalWarn — this is the textbook
+		// state-drift signal: Layer 1 in-memory says `complete`, Layer 2
+		// on-disk plan ledger still says `in_progress`. Downstream
+		// readers consult either layer and disagree. Pre-Phase-17 this
+		// was debug-gated and the operator had no live indication of
+		// the drift. The non-fatal contract (plan ledger is the source
+		// of truth, in-memory is a cache) means the disk state is
+		// authoritative; the in-memory advance is now correctly flagged
+		// as ahead-of-disk.
+		logger.criticalWarn(
+			`[advanceTaskStateAndPersist] persist ${taskId} → ${planStatus} failed (in-memory state still advanced — Layer 1 / Layer 2 drift): ${err instanceof Error ? err.message : String(err)}`,
 		);
 	}
 }

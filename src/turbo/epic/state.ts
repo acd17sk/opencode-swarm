@@ -241,6 +241,44 @@ export function isEpicModeActive(
 	return state?.active === true;
 }
 
+/**
+ * True iff epic mode is currently active for ANY session in the project.
+ *
+ * Use this when a code path needs to know "is the project running under
+ * Epic Mode right now" without caring which session toggled it. The
+ * session-scoped `isEpicModeActive` answers "did THIS session toggle it" —
+ * a different question with a different answer.
+ *
+ * The architect's session enables Epic via `/swarm epic on`; sub-agents
+ * (coders, reviewers) dispatched through the `Task` tool run in their own
+ * sessions and have no record of that toggle. Asking the project-scoped
+ * check is the only correct way to honor Epic Mode from those flows.
+ * Rule 2's auto-commit (centralized in Phase 5) is the canonical caller.
+ *
+ * Fail-closed: returns `false` on unreadable state, matching the rest of
+ * this module's defaults.
+ */
+export function isEpicModeActiveForProject(directory: string): boolean {
+	if (stateUnreadableMap.get(directory)) return false;
+	// Phase 8: probe for the state file BEFORE calling `readPersisted`,
+	// which would otherwise seed an empty `.swarm/epic-state.json` (and
+	// the `.swarm/` directory itself) for any project that hasn't run
+	// Epic Mode. Centralized Rule 2 (`plan/manager.updateTaskStatus`)
+	// calls this on every `status === 'completed'` transition, so the
+	// seeding would leak into every project using `update_task_status`,
+	// including non-Epic Lean Turbo and plain plan-only flows. The
+	// contract is unchanged: no file ⇒ no session is active ⇒ false.
+	if (!fs.existsSync(path.join(directory, '.swarm', STATE_FILE))) {
+		return false;
+	}
+	const persisted = readPersisted(directory);
+	if (!persisted) return false;
+	for (const session of Object.values(persisted.sessions)) {
+		if (session?.active === true) return true;
+	}
+	return false;
+}
+
 /** Enable epic mode for the session; records `enabledAt`. */
 export function enableEpicMode(directory: string, sessionID: string): void {
 	const current =

@@ -1065,6 +1065,10 @@ Call \`epic_decide_phase(directory, phase=N, sessionID)\`. This runs preflight +
 - \`reason: "decided"\` with \`verdict.decision === "promote"\` → continue to step 3
 - \`reason: "demoted"\` → skip to step 6 (per-task serial fallback)
 - \`reason: "scopes-missing"\` → the response includes a \`missingScopes\` array. Call \`declare_scope\` for each missing id, then re-invoke step 2. Do NOT interpret this as "Epic decided to serialize" — Epic never ran the decision; the preflight blocked it.
+- \`reason: "no-phase"\` → the requested phase number isn't in \`plan.json\`. Check the available phases listed in the response's \`message\` field and re-invoke step 2 with a valid phase. Do NOT proceed past step 2.
+- \`reason: "phase-already-complete"\` → every task in this phase is already marked \`completed\`. The phase is done; advance to the next phase (call step 2 again with phase=N+1). If you intended to re-run tasks, first set their status back to \`pending\` via \`update_task_status\`.
+- \`reason: "phase-empty"\` → the requested phase exists in \`plan.json\` but has zero tasks defined (a phase header was created but never populated). Either add tasks to this phase (with declared scopes, depends, and acceptance criteria) and re-invoke step 2, or remove the empty phase from \`plan.json\` and decide on the next valid phase. Do NOT proceed past step 2.
+- \`reason: "epic-state-unreadable"\` → \`.swarm/epic-state.json\` is corrupt. The state file must be repaired (delete it to reseed, or fix the JSON syntax) before Epic Mode can decide.
 - any other error reason → fix per the structured \`message\` and retry.
 
 **3. Surface the verdict to the user immediately, before any further action:**

@@ -17,6 +17,7 @@
  */
 
 import { loadPluginConfigWithMeta } from '../config/index.js';
+import { isGitRepo } from '../git/branch.js';
 import { loadPlanJsonOnly } from '../plan/manager.js';
 import { getAgentSession } from '../state.js';
 import {
@@ -60,6 +61,7 @@ export const _internals = {
 	loadCalibrationState,
 	isCalibrationStateUnreadable,
 	readDivergenceHistory,
+	isGitRepo,
 };
 
 export async function handleEpicCommand(
@@ -177,6 +179,52 @@ function renderStatus(directory: string, sessionID: string): string {
 	return lines.join('\n');
 }
 
+/**
+ * Phase 14 (B26): shared detail string for the greenfield-check line in
+ * both `/swarm epic last` and `/swarm epic decide` outputs. Pre-Phase-14
+ * both renderers branched on `passed` alone and rendered `missing
+ * upstreams: <list>` for any failure — which printed an EMPTY list when
+ * the gate failed purely on phantom deps (a Phase-13-B20 typo case),
+ * leaving the architect with no clue why the gate demoted. This helper
+ * surfaces phantom deps explicitly, with their own remediation hint.
+ */
+function formatGreenfieldDetail(input: {
+	bypassedNoGit: boolean;
+	passed: boolean;
+	crossPhaseUpstreams: readonly string[];
+	missingUpstreams: readonly string[];
+	phantomDeps: readonly string[];
+}): string {
+	if (input.bypassedNoGit) {
+		return 'bypassed — non-git project';
+	}
+	if (input.passed) {
+		return input.crossPhaseUpstreams.length === 0
+			? 'vacuous — no cross-phase upstreams to verify'
+			: `cross-phase upstreams in git: ${input.crossPhaseUpstreams.join(', ')}`;
+	}
+	const parts: string[] = [];
+	if (input.phantomDeps.length > 0) {
+		const sample = input.phantomDeps.slice(0, 3).join(', ');
+		const more =
+			input.phantomDeps.length > 3
+				? `, +${input.phantomDeps.length - 3} more`
+				: '';
+		parts.push(`phantom dep ids (fix the typo): ${sample}${more}`);
+	}
+	if (input.missingUpstreams.length > 0) {
+		const sample = input.missingUpstreams.slice(0, 3).join(', ');
+		const more =
+			input.missingUpstreams.length > 3
+				? `, +${input.missingUpstreams.length - 3} more`
+				: '';
+		parts.push(`missing upstreams (wait for commit): ${sample}${more}`);
+	}
+	return parts.length > 0
+		? parts.join('; ')
+		: 'fail — no diagnostic fields present (legacy record?)';
+}
+
 function renderLast(directory: string): string {
 	// `/swarm epic last` — shows the most recent decision from the durable
 	// evidence log. Complements `/swarm epic status` (which reads in-memory
@@ -222,9 +270,33 @@ function renderLast(directory: string): string {
 	lines.push(
 		`- **hot-module**: ${r.hotModuleCheck.passed ? 'pass' : `fail — touched ${hot.slice(0, 3).join(', ')}${hot.length > 3 ? `, +${hot.length - 3} more` : ''}`}`,
 	);
-	lines.push(
-		`- **greenfield**: ${r.greenfieldCheck.passed ? 'pass' : 'fail'} (${r.greenfieldCheck.commitsObserved} commits observed, ${r.greenfieldCheck.minCommits} required)`,
-	);
+	// Phase 12 (B12): post-Phase-10 the greenfield gate decides via
+	// predecessor evidence (cross-phase upstreams in git) rather than the
+	// commit-count floor. The old "X commits observed, Y required" label
+	// is meaningless under that model. Render the actual decision basis:
+	// missing upstreams when failing, "vacuous" when there were no
+	// cross-phase deps to check, or "bypassed (no git)" when Rule 1 fired.
+	//
+	// Phase 13 (B18): legacy records on disk (written before Phase 10
+	// landed) lack `crossPhaseUpstreams` / `missingUpstreams`. Default to
+	// `[]` so the renderer doesn't TypeError when surfacing them via
+	// `/swarm epic last`. We don't try to reconstruct intent from those
+	// records — just treat empty as "no upstream info recorded".
+	{
+		const g = r.greenfieldCheck;
+		const crossPhaseUpstreams = g.crossPhaseUpstreams ?? [];
+		const missingUpstreams = g.missingUpstreams ?? [];
+		const phantomDeps = g.phantomDeps ?? [];
+		lines.push(
+			`- **greenfield (predecessor evidence)**: ${g.passed ? 'pass' : 'fail'} — ${formatGreenfieldDetail({
+				bypassedNoGit: g.bypassedNoGit === true,
+				passed: g.passed,
+				crossPhaseUpstreams,
+				missingUpstreams,
+				phantomDeps,
+			})}`,
+		);
+	}
 	if (records.length > 1) {
 		lines.push('');
 		lines.push(
@@ -378,6 +450,27 @@ async function renderDecide(directory: string): Promise<string> {
 
 	const { pairs, commitsObserved } =
 		await _internals.getCoChangeData(directory);
+
+	// Phase 16 (C4.H2): include the Phase 10/13 gate inputs that the
+	// real `epic_decide_phase` tool computes — `isGitProject` (Rule 1
+	// bypass) and the calibration-extended hot-module set. Without
+	// these, the what-if's verdict diverges from the actual tool: a
+	// non-git project would show "demote (greenfield)" here but
+	// "promote (bypassed)" from the tool. The plan-wide what-if can NOT
+	// simulate per-phase cross-phase predecessor-evidence
+	// (`crossPhaseUpstreams` / `phantomDeps`) because those depend on
+	// which phase the architect intends to decide — for accurate
+	// per-phase previews the user should invoke the `epic_decide_phase`
+	// tool directly with a phase number. We surface this caveat in the
+	// output so the what-if's scope is unambiguous.
+	const isGitProject = (() => {
+		try {
+			return _internals.isGitRepo(directory);
+		} catch {
+			return false;
+		}
+	})();
+
 	const verdict = _internals.decideEpicActivation(
 		tasks,
 		pairs,
@@ -387,9 +480,12 @@ async function renderDecide(directory: string): Promise<string> {
 			minCommitsForSignal,
 			cochangeNpmiThreshold,
 			cochangeMinCoChanges,
+			isGitProject,
 		},
 	);
-	return formatVerdict(verdict);
+	const caveat =
+		'\n\n_Note: `/swarm epic decide` is a plan-wide what-if. It does NOT simulate the per-phase predecessor-evidence check (Phase 10) or phantom-dep detection — for accurate per-phase decisions, call `epic_decide_phase(phase=N)` directly._';
+	return formatVerdict(verdict) + caveat;
 }
 
 function formatVerdict(verdict: EpicActivationVerdict): string {
@@ -404,9 +500,24 @@ function formatVerdict(verdict: EpicActivationVerdict): string {
 	lines.push(
 		`- hot-module: **${verdict.rationale.hotModuleCheck.passed ? 'pass' : 'fail'}** (${verdict.rationale.hotModuleCheck.touchedHotModules.length} hot module(s) touched)`,
 	);
-	lines.push(
-		`- greenfield: **${verdict.rationale.greenfieldCheck.passed ? 'pass' : 'fail'}** (${verdict.rationale.greenfieldCheck.commitsObserved} commits observed, ${verdict.rationale.greenfieldCheck.minCommits} required)`,
-	);
+	// Phase 12 (B12) / Phase 13 (B18) / Phase 14 (B26): same rendering
+	// rationale, legacy-tolerance guard, AND phantom-dep surfacing as
+	// the `renderLast` path above.
+	{
+		const g = verdict.rationale.greenfieldCheck;
+		const crossPhaseUpstreams = g.crossPhaseUpstreams ?? [];
+		const missingUpstreams = g.missingUpstreams ?? [];
+		const phantomDeps = g.phantomDeps ?? [];
+		lines.push(
+			`- greenfield (predecessor evidence): **${g.passed ? 'pass' : 'fail'}** — ${formatGreenfieldDetail({
+				bypassedNoGit: g.bypassedNoGit === true,
+				passed: g.passed,
+				crossPhaseUpstreams,
+				missingUpstreams,
+				phantomDeps,
+			})}`,
+		);
+	}
 	if (verdict.blockingReasons.length > 0) {
 		lines.push('');
 		lines.push('### Blocking reasons');

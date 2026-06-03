@@ -26,6 +26,9 @@ import {
 	swarmState,
 } from '../state';
 import { telemetry } from '../telemetry.js';
+// Rule 2 auto-commit is centralized in `plan/manager.updateTaskStatus` —
+// the choke point that also covers `advanceTaskStateAndPersist` callers
+// in `delegation-gate.ts`. See plan/manager.ts for the gating rationale.
 import { verifyLeanTurboTaskCompletion } from '../turbo/lean/task-completion';
 import { validateTaskIdFormat as _validateTaskIdFormat } from '../validation/task-id';
 import { createSwarmTool } from './create-tool';
@@ -855,22 +858,25 @@ export async function executeUpdateTaskStatus(
 	fallbackDir?: string,
 	ctx?: ToolContext,
 ): Promise<UpdateTaskStatusResult> {
-	// Step 1: Validate status
+	// Step 1: Validate status.
+	// Phase 17 (B.H1): differentiated message so the architect can tell
+	// status vs task_id validation failures apart without parsing
+	// `errors[0]`.
 	const statusError = validateStatus(args.status);
 	if (statusError) {
 		return {
 			success: false,
-			message: 'Validation failed',
+			message: 'Invalid status value',
 			errors: [statusError],
 		};
 	}
 
-	// Step 2: Validate task_id format
+	// Step 2: Validate task_id format.
 	const taskIdError = validateTaskId(args.task_id);
 	if (taskIdError) {
 		return {
 			success: false,
-			message: 'Validation failed',
+			message: 'Invalid task_id format',
 			errors: [taskIdError],
 		};
 	}
@@ -897,12 +903,16 @@ export async function executeUpdateTaskStatus(
 	// existence, and subdirectory checks. (FR-006, DD-012)
 	let directory: string;
 
-	// When neither is available, return early with original error message
+	// When neither is available, return early with a clear message.
+	// Phase 17 (B.H4): removed the internal `fallbackDir` jargon.
 	if (!args.working_directory && !fallbackDir) {
 		return {
 			success: false,
-			message: 'No working_directory provided and fallbackDir is undefined',
-			errors: ['Cannot resolve directory for task status update'],
+			message:
+				'update_task_status called without working_directory and no project root could be inferred from session context',
+			errors: [
+				'Pass an explicit `working_directory` argument pointing at the project root (the directory containing .swarm/plan.json).',
+			],
 		};
 	}
 
@@ -1061,30 +1071,56 @@ export async function executeUpdateTaskStatus(
 		agentName = agent;
 		break; // Use first active agent found
 	}
+	// Phase 17 (A.B1 + A.B4): bounded in-tool retry loop on plan.json
+	// lock contention. Pre-Phase-17 `tryAcquireLock` was a single try
+	// with `retries: 0` — under 4-lane parallel dispatch, 3 of 4
+	// sub-agents would lose the race and return `recovery_guidance:
+	// "retry"`, relying on the sub-agent LLM to actually retry. LLM
+	// retry behavior is non-deterministic, so status updates were
+	// statistically certain to drop. The retry schedule below covers
+	// up to ~3 seconds of accumulated wait — enough to absorb a
+	// 4-lane finish-burst plus Rule 2's 1.5s index.lock retry held
+	// inside the critical section.
+	const PLAN_LOCK_BACKOFF_MS: readonly number[] = [50, 100, 200, 400, 800, 1600];
 	let lockResult: Awaited<ReturnType<typeof tryAcquireLock>> | undefined;
-	try {
-		lockResult = await tryAcquireLock(
-			directory,
-			planFilePath,
-			agentName,
-			lockTaskId,
-		);
-	} catch (error) {
+	let lockError: unknown = null;
+	for (let attempt = 0; attempt <= PLAN_LOCK_BACKOFF_MS.length; attempt++) {
+		try {
+			lockResult = await tryAcquireLock(
+				directory,
+				planFilePath,
+				agentName,
+				lockTaskId,
+			);
+		} catch (error) {
+			lockError = error;
+			break;
+		}
+		if (lockResult.acquired) break;
+		if (attempt < PLAN_LOCK_BACKOFF_MS.length) {
+			await new Promise((resolve) =>
+				setTimeout(resolve, PLAN_LOCK_BACKOFF_MS[attempt]),
+			);
+		}
+	}
+	if (lockError !== null) {
 		return {
 			success: false,
-			message: 'Failed to acquire lock for task status update',
-			errors: [error instanceof Error ? error.message : String(error)],
+			message: 'plan.json lock acquisition failed',
+			errors: [
+				lockError instanceof Error ? lockError.message : String(lockError),
+			],
 		};
 	}
-	if (!lockResult.acquired) {
+	if (!lockResult || !lockResult.acquired) {
 		return {
 			success: false,
-			message: `Task status write blocked: plan.json is locked by ${lockResult.existing?.agent ?? 'another agent'} (task: ${lockResult.existing?.taskId ?? 'unknown'})`,
+			message: `Task status write blocked: plan.json is locked by ${lockResult?.existing?.agent ?? 'another agent'} (task: ${lockResult?.existing?.taskId ?? 'unknown'}) after ${PLAN_LOCK_BACKOFF_MS.length + 1} attempts spanning ~${PLAN_LOCK_BACKOFF_MS.reduce((a, b) => a + b, 0)}ms`,
 			errors: [
-				'Concurrent plan write detected — retry after the current write completes',
+				'Persistent lock contention — the holder may be wedged or another writer is sustained',
 			],
 			recovery_guidance:
-				'Wait a moment and retry update_task_status. The lock will expire automatically if the holding agent fails.',
+				'Retry update_task_status. If this persists, the lock holder may be stuck — check for crashed sub-agents or inspect .swarm/locks/.',
 		};
 	}
 	try {
@@ -1095,6 +1131,11 @@ export async function executeUpdateTaskStatus(
 		);
 
 		if (args.status === 'completed') {
+			// Rule 2 auto-commit fires inside `plan/manager.updateTaskStatus`
+			// after savePlan succeeds. See plan/manager.ts for rationale —
+			// centralizing there covers both this tool entry AND the
+			// council/reviewer completion path in `delegation-gate.ts`.
+
 			for (const [_sessionId, session] of swarmState.agentSessions) {
 				if (!(session.taskWorkflowStates instanceof Map)) {
 					continue;
@@ -1119,11 +1160,25 @@ export async function executeUpdateTaskStatus(
 			current_phase: updatedPlan.current_phase,
 		};
 	} catch (error) {
-		// Lock will be released in finally block
+		// Lock will be released in finally block.
+		// Phase 17 (B.H2): differentiate the catch by inspecting the
+		// error type / message so the architect can choose a retry vs
+		// escalate path without parsing `errors[0]` heuristically.
+		const errMsg = error instanceof Error ? error.message : String(error);
+		let category = 'plan.json write failed';
+		if (errMsg.includes('ENOENT')) {
+			category = 'plan.json missing (ENOENT)';
+		} else if (errMsg.includes('EACCES') || errMsg.includes('EPERM')) {
+			category = 'plan.json permission denied (EACCES/EPERM)';
+		} else if (errMsg.toLowerCase().includes('json')) {
+			category = 'plan.json schema or parse error';
+		} else if (errMsg.includes('PlanConcurrentModification')) {
+			category = 'plan.json concurrent write conflict (lock retry exhausted)';
+		}
 		return {
 			success: false,
-			message: 'Failed to update task status',
-			errors: [error instanceof Error ? error.message : String(error)],
+			message: category,
+			errors: [errMsg],
 		} as UpdateTaskStatusResult;
 	} finally {
 		if (lockResult?.acquired && lockResult.lock._release) {

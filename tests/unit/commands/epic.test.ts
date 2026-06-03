@@ -223,6 +223,107 @@ describe('handleEpicCommand — decide (read-only what-if)', () => {
 		const out = await handleEpicCommand('/fake', ['decide'], 'sess-1');
 		expect(out).toContain('No plan found');
 	});
+
+	test('Phase 15 (B38): decide-path renders phantom-only failure with the typo, not empty "missing upstreams:"', async () => {
+		_internals.decideEpicActivation = (() => ({
+			decision: 'demote' as const,
+			p: 0.05,
+			rationale: {
+				pCheck: { passed: true, p: 0.05, threshold: 0.3 },
+				hotModuleCheck: { passed: true, touchedHotModules: [] },
+				greenfieldCheck: {
+					passed: false,
+					commitsObserved: 4,
+					minCommits: 20,
+					crossPhaseUpstreams: [],
+					missingUpstreams: [],
+					phantomDeps: ['1.7', '2.99'],
+				},
+			},
+			blockingReasons: [
+				'phantom dep id(s) declared but not present in plan (probable typo, fix the dep id) — 1.7, 2.99',
+			],
+		})) as never;
+
+		const out = await handleEpicCommand('/fake', ['decide'], 'sess-1');
+		// The phantom typo IDs appear on the greenfield gate line itself.
+		expect(out).toContain('phantom dep ids');
+		expect(out).toContain('1.7');
+		expect(out).toContain('2.99');
+		// And there is no misleading empty "missing upstreams: " segment.
+		expect(out).not.toMatch(/missing upstreams: ?\n/);
+	});
+
+	test('Phase 15 (B38): decide-path renders mixed phantom+missing failure with both segments', async () => {
+		_internals.decideEpicActivation = (() => ({
+			decision: 'demote' as const,
+			p: 0.05,
+			rationale: {
+				pCheck: { passed: true, p: 0.05, threshold: 0.3 },
+				hotModuleCheck: { passed: true, touchedHotModules: [] },
+				greenfieldCheck: {
+					passed: false,
+					commitsObserved: 10,
+					minCommits: 20,
+					crossPhaseUpstreams: ['1.1'],
+					missingUpstreams: ['1.1'],
+					phantomDeps: ['2.99'],
+				},
+			},
+			blockingReasons: [],
+		})) as never;
+
+		const out = await handleEpicCommand('/fake', ['decide'], 'sess-1');
+		expect(out).toContain('phantom dep ids');
+		expect(out).toContain('2.99');
+		expect(out).toContain('missing upstreams');
+		expect(out).toContain('1.1');
+	});
+
+	test('Phase 15 (B38): decide-path renders vacuous-pass when no cross-phase upstreams', async () => {
+		_internals.decideEpicActivation = (() => ({
+			decision: 'promote' as const,
+			p: 0.05,
+			rationale: {
+				pCheck: { passed: true, p: 0.05, threshold: 0.3 },
+				hotModuleCheck: { passed: true, touchedHotModules: [] },
+				greenfieldCheck: {
+					passed: true,
+					commitsObserved: 0,
+					minCommits: 20,
+					crossPhaseUpstreams: [],
+					missingUpstreams: [],
+				},
+			},
+			blockingReasons: [],
+		})) as never;
+
+		const out = await handleEpicCommand('/fake', ['decide'], 'sess-1');
+		expect(out).toContain('vacuous');
+	});
+
+	test('Phase 15 (B38): decide-path tolerates legacy rationale without crashing', async () => {
+		// A pre-Phase-10 verdict shape (no crossPhaseUpstreams /
+		// missingUpstreams / phantomDeps on greenfieldCheck). The
+		// renderer must default these to [] and not throw.
+		_internals.decideEpicActivation = (() => ({
+			decision: 'demote' as const,
+			p: 0.5,
+			rationale: {
+				pCheck: { passed: false, p: 0.5, threshold: 0.3 },
+				hotModuleCheck: { passed: true, touchedHotModules: [] },
+				greenfieldCheck: {
+					passed: false,
+					commitsObserved: 0,
+					minCommits: 20,
+				},
+			},
+			blockingReasons: ['p too high'],
+		})) as never;
+
+		const out = await handleEpicCommand('/fake', ['decide'], 'sess-1');
+		expect(out).toContain('legacy record');
+	});
 });
 
 describe('handleEpicCommand — last (most recent decision from evidence)', () => {
@@ -403,5 +504,166 @@ describe('handleEpicCommand — calibration (Capability D state)', () => {
 		expect(out).toContain('+4 more');
 		// m10..m13 should not appear individually.
 		expect(out).not.toContain('src/m12.ts');
+	});
+});
+
+describe('Phase 14 (B26) — renderer surfaces phantomDeps on the greenfield line', () => {
+	test('failing gate with phantom deps only ⇒ renderer names the typo, not "missing upstreams:" with empty list', async () => {
+		_internals.readPromotionEvidence = (() => [
+			{
+				timestamp: '2026-06-03T12:00:00Z',
+				sessionID: 'sess-1',
+				phase: 2,
+				verdict: {
+					decision: 'demote' as const,
+					p: 0.05,
+					rationale: {
+						pCheck: { passed: true, p: 0.05, threshold: 0.3 },
+						hotModuleCheck: { passed: true, touchedHotModules: [] },
+						greenfieldCheck: {
+							passed: false,
+							commitsObserved: 4,
+							minCommits: 20,
+							crossPhaseUpstreams: [],
+							missingUpstreams: [],
+							phantomDeps: ['1.7', '2.99'],
+						},
+					},
+					blockingReasons: [
+						'phantom dep id(s) declared but not present in plan (probable typo, fix the dep id) — 1.7, 2.99',
+					],
+				},
+			},
+		]) as never;
+
+		const out = await handleEpicCommand('/fake', ['last'], 'sess-1');
+		// The phantom typo IDs MUST appear on the greenfield line itself.
+		expect(out).toContain('phantom dep ids');
+		expect(out).toContain('1.7');
+		expect(out).toContain('2.99');
+		// And the renderer must NOT emit a misleading empty
+		// "missing upstreams: " segment.
+		expect(out).not.toMatch(/missing upstreams: ?\n/);
+	});
+
+	test('failing gate with BOTH phantom deps and missing upstreams ⇒ both segments surface', async () => {
+		_internals.readPromotionEvidence = (() => [
+			{
+				timestamp: '2026-06-03T13:00:00Z',
+				sessionID: 'sess-1',
+				phase: 3,
+				verdict: {
+					decision: 'demote' as const,
+					p: 0.05,
+					rationale: {
+						pCheck: { passed: true, p: 0.05, threshold: 0.3 },
+						hotModuleCheck: { passed: true, touchedHotModules: [] },
+						greenfieldCheck: {
+							passed: false,
+							commitsObserved: 10,
+							minCommits: 20,
+							crossPhaseUpstreams: ['1.1'],
+							missingUpstreams: ['1.1'],
+							phantomDeps: ['2.99'],
+						},
+					},
+					blockingReasons: [],
+				},
+			},
+		]) as never;
+
+		const out = await handleEpicCommand('/fake', ['last'], 'sess-1');
+		expect(out).toContain('phantom dep ids');
+		expect(out).toContain('2.99');
+		expect(out).toContain('missing upstreams');
+		expect(out).toContain('1.1');
+	});
+
+	test('passing gate with cross-phase upstreams in git ⇒ renderer names them', async () => {
+		_internals.readPromotionEvidence = (() => [
+			{
+				timestamp: '2026-06-03T14:00:00Z',
+				sessionID: 'sess-1',
+				phase: 2,
+				verdict: {
+					decision: 'promote' as const,
+					p: 0.05,
+					rationale: {
+						pCheck: { passed: true, p: 0.05, threshold: 0.3 },
+						hotModuleCheck: { passed: true, touchedHotModules: [] },
+						greenfieldCheck: {
+							passed: true,
+							commitsObserved: 3,
+							minCommits: 20,
+							crossPhaseUpstreams: ['1.1', '1.2'],
+							missingUpstreams: [],
+						},
+					},
+					blockingReasons: [],
+				},
+			},
+		]) as never;
+
+		const out = await handleEpicCommand('/fake', ['last'], 'sess-1');
+		expect(out).toContain('cross-phase upstreams in git: 1.1, 1.2');
+	});
+
+	test('passing gate with no cross-phase upstreams ⇒ renders "vacuous" (Phase 1 / single-phase plans)', async () => {
+		_internals.readPromotionEvidence = (() => [
+			{
+				timestamp: '2026-06-03T15:00:00Z',
+				sessionID: 'sess-1',
+				phase: 1,
+				verdict: {
+					decision: 'promote' as const,
+					p: 0.05,
+					rationale: {
+						pCheck: { passed: true, p: 0.05, threshold: 0.3 },
+						hotModuleCheck: { passed: true, touchedHotModules: [] },
+						greenfieldCheck: {
+							passed: true,
+							commitsObserved: 0,
+							minCommits: 20,
+							crossPhaseUpstreams: [],
+							missingUpstreams: [],
+						},
+					},
+					blockingReasons: [],
+				},
+			},
+		]) as never;
+
+		const out = await handleEpicCommand('/fake', ['last'], 'sess-1');
+		expect(out).toContain('vacuous');
+	});
+
+	test('legacy record with no diagnostic fields ⇒ renderer prints honest "(legacy record?)" hint', async () => {
+		_internals.readPromotionEvidence = (() => [
+			{
+				timestamp: '2026-05-01T10:00:00Z',
+				sessionID: 'sess-pre10',
+				phase: 1,
+				verdict: {
+					decision: 'demote' as const,
+					p: 0.5,
+					rationale: {
+						pCheck: { passed: false, p: 0.5, threshold: 0.3 },
+						hotModuleCheck: { passed: true, touchedHotModules: [] },
+						greenfieldCheck: {
+							passed: false,
+							commitsObserved: 0,
+							minCommits: 20,
+							// no crossPhaseUpstreams / missingUpstreams /
+							// phantomDeps — legacy pre-Phase-10 record
+						},
+					},
+					blockingReasons: ['pre-Phase-10 reason'],
+				},
+			},
+		]) as never;
+
+		const out = await handleEpicCommand('/fake', ['last'], 'sess-1');
+		// Renderer doesn't crash. Doesn't print misleading empty list.
+		expect(out).toContain('legacy record');
 	});
 });

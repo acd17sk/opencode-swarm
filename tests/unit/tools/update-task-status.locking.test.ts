@@ -176,6 +176,66 @@ describe('executeUpdateTaskStatus locking behavior', () => {
 			expect(result.message).toContain('blocked');
 		});
 
+		test('Phase 17 (A.B1/B4): retries lock acquisition up to 7 times across the backoff schedule before giving up', async () => {
+			// The retry schedule is [50, 100, 200, 400, 800, 1600] ms — 6
+			// backoffs after the initial attempt = 7 total tries. Under
+			// 4-lane benchmark this absorbs the finish-burst even when
+			// Rule 2's 1.5s `.git/index.lock` retry is held inside the
+			// critical section. Pre-Phase-17 `tryAcquireLock` was called
+			// exactly once with `retries: 0` so 3 of 4 lanes would
+			// silently lose.
+			mockTryAcquireLock.mockResolvedValue({
+				acquired: false,
+				existing: { agent: 'other-agent', taskId: '1.2' },
+			});
+
+			const args: UpdateTaskStatusArgs = {
+				task_id: '1.1',
+				status: 'in_progress',
+			};
+			const result = await executeUpdateTaskStatus(args, tempDir);
+
+			// 7 attempts total (1 initial + 6 retries)
+			expect(mockTryAcquireLock).toHaveBeenCalledTimes(7);
+			expect(result.success).toBe(false);
+			// Message names the attempt count + window so the architect
+			// can tell genuine starvation from a single-shot conflict.
+			expect(result.message).toContain('7 attempts');
+			// 50+100+200+400+800+1600 = 3150ms
+			expect(result.message).toContain('3150ms');
+		});
+
+		test('Phase 17 (A.B1/B4): if lock acquisition succeeds on retry N, no further retries happen', async () => {
+			// Fail twice, succeed on third try. The success path needs
+			// the full lock shape so the release flow doesn't throw.
+			const mockRelease = vi.fn().mockResolvedValue(undefined);
+			mockTryAcquireLock
+				.mockResolvedValueOnce({ acquired: false })
+				.mockResolvedValueOnce({ acquired: false })
+				.mockResolvedValueOnce({
+					acquired: true,
+					lock: {
+						filePath: 'plan.json',
+						agent: 'update-task-status',
+						taskId: 'lock-1',
+						timestamp: new Date().toISOString(),
+						expiresAt: Date.now() + 300000,
+						_release: mockRelease,
+					},
+				});
+			mockUpdateTaskStatus.mockResolvedValue({ current_phase: 1 });
+
+			const args: UpdateTaskStatusArgs = {
+				task_id: '1.1',
+				status: 'in_progress',
+			};
+			const result = await executeUpdateTaskStatus(args, tempDir);
+
+			expect(mockTryAcquireLock).toHaveBeenCalledTimes(3);
+			expect(mockUpdateTaskStatus).toHaveBeenCalled();
+			expect(result.success).toBe(true);
+		});
+
 		test('when lock acquisition throws, updateTaskStatus is NOT called', async () => {
 			// Arrange: lock acquisition throws
 			mockTryAcquireLock.mockRejectedValue(
@@ -310,9 +370,12 @@ describe('executeUpdateTaskStatus locking behavior', () => {
 			};
 			const result = await executeUpdateTaskStatus(args, tempDir);
 
-			// Assert: error is returned properly
+			// Assert: error is returned properly.
+			// Phase 17 (B.H2) categorizes the catch-all by inspecting the
+			// thrown error message: a generic 'Disk full' doesn't match
+			// any specific category and falls through to the default.
 			expect(result.success).toBe(false);
-			expect(result.message).toBe('Failed to update task status');
+			expect(result.message).toBe('plan.json write failed');
 			expect(result.errors?.[0]).toBe('Disk full');
 		});
 
@@ -405,8 +468,9 @@ describe('executeUpdateTaskStatus locking behavior', () => {
 				},
 			});
 
-			// Second lock acquisition fails (simulating concurrent write)
-			mockTryAcquireLock.mockResolvedValueOnce({
+			// Second lock acquisition fails for every attempt (Phase 17's
+			// retry loop will try 7 times before giving up).
+			mockTryAcquireLock.mockResolvedValue({
 				acquired: false,
 			});
 

@@ -190,6 +190,18 @@ export declare class LeanTurboRunner {
     private _stateLock;
     /** Lean-mode configuration passed at construction. Undefined means use defaults. */
     private readonly _leanConfig?;
+    /**
+     * Rule 3 of the greenfield-smart redesign. When supplied, the lane
+     * planner consults this predicate for cross-batch `depends:` upstream
+     * tasks (i.e., deps not in the phase batch — typically completed in a
+     * prior phase). The downstream is parallel-eligible only when its
+     * cross-batch upstream is committed.
+     *
+     * Undefined means legacy behavior (cross-batch deps implicitly
+     * satisfied). Epic Mode supplies `buildIsUpstreamCommitted(directory)`;
+     * Lean-Turbo-only callers leave it undefined.
+     */
+    private readonly _isUpstreamCommitted?;
     constructor(options: {
         /** Project root directory */
         directory: string;
@@ -201,6 +213,12 @@ export declare class LeanTurboRunner {
         generatedAgentNames?: string[];
         /** Lean-mode configuration. Falls back to hardcoded defaults if omitted. */
         leanConfig?: LeanTurboConfig;
+        /**
+         * Greenfield-smart Rule 3: predicate over cross-batch `depends:`
+         * upstream tasks. See `_isUpstreamCommitted` for semantics. Epic
+         * Mode populates this from `buildIsUpstreamCommitted(directory)`.
+         */
+        isUpstreamCommitted?: (taskId: string) => boolean;
     });
     /**
      * Run a single phase: plan lanes, acquire locks, dispatch coders.
