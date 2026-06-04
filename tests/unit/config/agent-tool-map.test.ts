@@ -100,9 +100,12 @@ describe('AGENT_TOOL_MAP', () => {
 	});
 
 	it('architect has the Epic-Mode tools but NOT the opaque-dispatch ones', () => {
-		// One-path enforcement: architect's only sanctioned phase-execution
+		// One-flow enforcement: architect's only sanctioned phase-execution
 		// flow when Epic is on is declare_scope → epic_decide_phase →
-		// lean_turbo_plan_lanes → Task (per lane) → epic_record_divergence.
+		// epic_plan_waves → Task (per taskId per wave, all in one message)
+		// → epic_record_divergence. `lean_turbo_plan_lanes` is retained for
+		// non-Epic Lean Turbo use (the planner stays unchanged for legacy
+		// callers; Epic Mode routes through the wave planner instead).
 		// Both `lean_turbo_run_phase` and `epic_run_phase` are excluded
 		// from the architect's tool map because they dispatch coders via
 		// opencodeClient internally (outside opencode's Task tracking),
@@ -110,11 +113,10 @@ describe('AGENT_TOOL_MAP', () => {
 		// exported from source for composition users; the architect just
 		// can't invoke them.
 		expect(AGENT_TOOL_MAP.architect).toContain('epic_decide_phase');
+		expect(AGENT_TOOL_MAP.architect).toContain('epic_plan_waves');
 		expect(AGENT_TOOL_MAP.architect).toContain('epic_record_divergence');
 		expect(AGENT_TOOL_MAP.architect).toContain('lean_turbo_plan_lanes');
-		expect(AGENT_TOOL_MAP.architect).not.toContain(
-			'epic_run_phase' as never,
-		);
+		expect(AGENT_TOOL_MAP.architect).not.toContain('epic_run_phase' as never);
 		expect(AGENT_TOOL_MAP.architect).not.toContain(
 			'lean_turbo_run_phase' as never,
 		);

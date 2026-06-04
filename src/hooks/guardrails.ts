@@ -127,8 +127,9 @@ export const _internals = {
  * before any of these will succeed.
  *
  * Read tools (get_approved_plan, lint_spec, set_qa_gates, convene_*,
- * lean_turbo_plan_lanes, lean_turbo_runner_status, lean_turbo_review) are
- * intentionally NOT blocked — drift surfacing should not block exploration.
+ * lean_turbo_plan_lanes, epic_plan_waves, lean_turbo_runner_status,
+ * lean_turbo_review) are intentionally NOT blocked — drift surfacing should
+ * not block exploration.
  */
 export const SPEC_DRIFT_BLOCKED_TOOLS = new Set<string>([
 	'save_plan',

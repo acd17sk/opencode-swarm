@@ -78,7 +78,13 @@ describe('applyCalibration — single-record behaviour', () => {
 		const state = { ...emptyCalibrationState(), consecutiveCleanCount: 5 };
 		const next = applyCalibration(
 			state,
-			[makeRecord({ isClean: false, divergenceRatio: 0.5, undeclared: ['x.ts'] })],
+			[
+				makeRecord({
+					isClean: false,
+					divergenceRatio: 0.5,
+					undeclared: ['x.ts'],
+				}),
+			],
 			baseOptions,
 		);
 		expect(next.consecutiveCleanCount).toBe(0);
@@ -204,7 +210,11 @@ describe('applyCalibration — hot-module monotonic growth', () => {
 			],
 			baseOptions,
 		);
-		expect(state.hotModuleAdditions).toEqual(['src/a.ts', 'src/b.ts', 'src/c.ts']);
+		expect(state.hotModuleAdditions).toEqual([
+			'src/a.ts',
+			'src/b.ts',
+			'src/c.ts',
+		]);
 	});
 });
 
@@ -283,9 +293,7 @@ describe('Simulation invariants', () => {
 		);
 		expect(state.consecutiveCleanCount).toBe(9);
 		// Still under static — loosen has not fired yet.
-		expect(
-			effectiveActivationThreshold(0.3, state),
-		).toBeLessThan(0.3);
+		expect(effectiveActivationThreshold(0.3, state)).toBeLessThan(0.3);
 	});
 
 	test('determinism — the same input twice yields the same output', () => {

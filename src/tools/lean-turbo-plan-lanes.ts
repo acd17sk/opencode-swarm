@@ -8,15 +8,17 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ToolDefinition } from '@opencode-ai/plugin/tool';
 import { z } from 'zod';
+import { loadPluginConfigWithMeta as loadPluginConfigWithMeta_import } from '../config';
 import { DEFAULT_LEAN_TURBO_CONFIG } from '../config/constants';
+import type { LeanTurboConfig } from '../config/schema';
 import { isGitRepo as isGitRepo_import } from '../git/branch';
-import { criticalWarn } from '../utils/logger.js';
 import {
 	buildIsUpstreamCommitted as buildIsUpstreamCommitted_import,
 	buildIsUpstreamCommittedWithStatus as buildIsUpstreamCommittedWithStatus_import,
 } from '../turbo/epic/upstream-commits';
 import type { LeanTurboLanePlan } from '../turbo/lean/planner';
 import { type PlanPhase, planLeanTurboLanes } from '../turbo/lean/planner';
+import { criticalWarn } from '../utils/logger.js';
 import { createSwarmTool } from './create-tool';
 
 /**
@@ -73,9 +75,21 @@ export async function executeLeanTurboPlanLanes(
 		};
 	}
 
-	// Default Lean Turbo config when not provided.
-	// Sourced from DEFAULT_LEAN_TURBO_CONFIG to prevent config drift.
-	const defaultConfig = { ...DEFAULT_LEAN_TURBO_CONFIG };
+	// Honor user-set `turbo.lean.*` config knobs by loading the project's
+	// plugin config and merging over the defaults. Parity with the Epic
+	// wave planner's config-load path. Falls back to defaults on any load
+	// failure (the common case is "no custom config" which is silent).
+	let defaultConfig: LeanTurboConfig = { ...DEFAULT_LEAN_TURBO_CONFIG };
+	try {
+		const loaded = await _internals.loadPluginConfigWithMeta(directory);
+		const userLean = loaded?.config?.turbo?.lean;
+		if (userLean) {
+			defaultConfig = { ...defaultConfig, ...userLean };
+		}
+	} catch {
+		// Use defaults; load failure on a project without a custom config
+		// is the common case and should not be a warning.
+	}
 
 	// Rule 3 of the greenfield-smart redesign: cross-batch deps are
 	// parallel-eligible only when the upstream task is in git history.
@@ -192,8 +206,8 @@ export const _internals = {
 	isGitRepo: (cwd: string): boolean => isGitRepo_import(cwd),
 	buildIsUpstreamCommitted: (cwd: string): ((taskId: string) => boolean) =>
 		buildIsUpstreamCommitted_import(cwd),
-	buildIsUpstreamCommittedWithStatus:
-		buildIsUpstreamCommittedWithStatus_import,
+	buildIsUpstreamCommittedWithStatus: buildIsUpstreamCommittedWithStatus_import,
+	loadPluginConfigWithMeta: loadPluginConfigWithMeta_import,
 };
 
 /**

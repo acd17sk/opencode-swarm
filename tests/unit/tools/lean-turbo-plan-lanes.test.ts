@@ -31,10 +31,7 @@ import {
 
 type Internals = typeof _internals;
 
-function writePlanJson(
-	tempDir: string,
-	plan: { phases: unknown[] },
-): void {
+function writePlanJson(tempDir: string, plan: { phases: unknown[] }): void {
 	fs.mkdirSync(path.join(tempDir, '.swarm'), { recursive: true });
 	fs.writeFileSync(
 		path.join(tempDir, '.swarm', 'plan.json'),

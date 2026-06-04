@@ -214,9 +214,9 @@ describe('planLeanTurboLanes — greenfield-smart Rule 3', () => {
 		expect(allTasks).toContain('2.1');
 		expect(allTasks).toContain('2.2');
 		// Neither task gets the Rule-3 marker — both deps are in-batch.
-		expect(
-			result.degradedTasks.some((d) => d.reason.includes('Rule 3')),
-		).toBe(false);
+		expect(result.degradedTasks.some((d) => d.reason.includes('Rule 3'))).toBe(
+			false,
+		);
 	});
 
 	test('mixed in-batch + cross-batch deps: cross blocks, in still resolves', () => {

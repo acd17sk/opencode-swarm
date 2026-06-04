@@ -30,24 +30,24 @@ afterEach(() => {
 });
 
 describe('EPIC_MODE_BANNER content', () => {
-	test('describes the SINGLE sanctioned phase-execution path', () => {
+	test('describes the SINGLE sanctioned phase-execution flow', () => {
 		// The banner now describes ONE flow:
-		//   declare_scope → epic_decide_phase → lean_turbo_plan_lanes
-		//     → Task dispatch → epic_record_divergence
+		//   declare_scope → epic_decide_phase → epic_plan_waves
+		//     → Task dispatch (per wave) → epic_record_divergence
 		// All five tool names appear; the opaque alternatives are
 		// explicitly forbidden.
 		expect(EPIC_MODE_BANNER).toContain('declare_scope');
 		expect(EPIC_MODE_BANNER).toContain('epic_decide_phase');
-		expect(EPIC_MODE_BANNER).toContain('lean_turbo_plan_lanes');
+		expect(EPIC_MODE_BANNER).toContain('epic_plan_waves');
 		expect(EPIC_MODE_BANNER).toContain('Task');
 		expect(EPIC_MODE_BANNER).toContain('epic_record_divergence');
-		expect(EPIC_MODE_BANNER).toContain('There is one path');
+		expect(EPIC_MODE_BANNER).toContain('There is one flow');
 	});
 
 	test('forbids the opaque dispatch tools (lean_turbo_run_phase + epic_run_phase)', () => {
 		// Both tools dispatch coders via opencodeClient internally (outside
 		// opencode's Task tracking). The banner must block both so the
-		// transparent Task-based dispatch is the only path the architect
+		// transparent Task-based dispatch is the only flow the architect
 		// can take.
 		expect(EPIC_MODE_BANNER).toContain(
 			'Do NOT call `lean_turbo_run_phase` directly',
@@ -55,9 +55,10 @@ describe('EPIC_MODE_BANNER content', () => {
 		expect(EPIC_MODE_BANNER).toContain('Do not invoke `lean_turbo_run_phase`');
 		// The architect's pretraining may include the deprecated
 		// `epic_run_phase` tool. The banner must explicitly anchor the
-		// model away from inventing a call to it.
+		// model away from inventing a call to it (the Note paragraph at the
+		// top of the banner names it as not-the-Epic-flow).
 		expect(EPIC_MODE_BANNER).toContain('epic_run_phase');
-		expect(EPIC_MODE_BANNER).toContain('no longer exists');
+		expect(EPIC_MODE_BANNER).toContain('neither is the Epic Mode flow');
 	});
 
 	test('explains both promote and demote outcomes', () => {
@@ -106,15 +107,29 @@ describe('EPIC_MODE_BANNER content', () => {
 		);
 	});
 
-	test('mandates Task dispatch (with all calls in ONE message for parallel execution)', () => {
+	test('mandates Task dispatch (with all calls in ONE message per wave for parallel execution)', () => {
 		// The point of the architect-led dispatch is opencode-tracked
-		// subagents the user can click into for live visibility.
-		expect(EPIC_MODE_BANNER).toContain('Dispatch each lane via the `Task` tool');
-		expect(EPIC_MODE_BANNER).toContain('ALL IN ONE MESSAGE');
+		// subagents the user can click into for live visibility. Each wave
+		// is one assistant message containing wave.taskIds.length separate
+		// Task calls.
+		expect(EPIC_MODE_BANNER).toContain(
+			'Dispatch each wave: emit one separate `Task` tool call per `taskId`',
+		);
+		// Per-wave atomic-message rule must be explicit so the architect
+		// cannot split a wave across messages or bundle a wave into one
+		// Task call.
+		expect(EPIC_MODE_BANNER).toContain(
+			"ALL of that wave's `Task` calls go in ONE assistant message",
+		);
 		expect(EPIC_MODE_BANNER).toContain('visible subagent');
 		expect(EPIC_MODE_BANNER).toContain(
 			'the only way to dispatch promoted phases',
 		);
+		// Defects-to-avoid block must call out bundling and splitting
+		// explicitly (these were observed live failure modes).
+		expect(EPIC_MODE_BANNER).toContain('Bundling');
+		expect(EPIC_MODE_BANNER).toContain('Splitting across messages');
+		expect(EPIC_MODE_BANNER).toContain('Skipping single-task waves');
 	});
 });
 

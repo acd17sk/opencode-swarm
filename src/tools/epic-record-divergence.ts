@@ -12,7 +12,9 @@
  *      task's writes only.
  *   3. Appends one record to `.swarm/epic/divergence.jsonl` via
  *      `recordTaskDivergence`. The calibration engine reads that file on the
- *      next `epic_run_phase` invocation.
+ *      next `epic_decide_phase` invocation (the architect-facing decide
+ *      tool — `epic_run_phase` is the legacy unified path, retained as
+ *      `executeEpicRunPhase` for composition users only).
  *
  * Best-effort by design — failure to record divergence is logged but never
  * surfaces as a task-blocking error. Worst case: a single observation is
@@ -162,20 +164,17 @@ export const epic_record_divergence: ToolDefinition = createSwarmTool({
 		'Record divergence between a completed task\'s declared scope and the files actually modified, for Epic Mode calibration (Capability D). Call this immediately after update_task_status sets status="completed". Appends one line to .swarm/epic/divergence.jsonl. Best-effort — never fails the calling agent. Use only when /swarm epic is on for the session.',
 	args: {
 		directory: z.string().describe('Project root directory'),
-		taskId: z
-			.string()
-			.describe('Task id whose divergence should be recorded'),
+		taskId: z.string().describe('Task id whose divergence should be recorded'),
 		sessionID: z.string().describe('Active session ID'),
 	},
 	execute: async (args: unknown, _directory: string, ctx) => {
-		const { taskId, sessionID: argSessionID } = args as EpicRecordDivergenceArgs;
+		const { taskId, sessionID: argSessionID } =
+			args as EpicRecordDivergenceArgs;
 		// Same rationale as epic_run_phase: prefer the framework-supplied
 		// session over a model-hallucinated value, since `hasActiveEpicMode`
 		// is strictly per-session.
 		const sessionID =
-			ctx?.sessionID && ctx.sessionID.length > 0
-				? ctx.sessionID
-				: argSessionID;
+			ctx?.sessionID && ctx.sessionID.length > 0 ? ctx.sessionID : argSessionID;
 		return JSON.stringify(
 			await executeEpicRecordDivergence({
 				directory: _directory,

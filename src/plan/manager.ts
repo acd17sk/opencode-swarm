@@ -1754,10 +1754,7 @@ export async function updateTaskStatus(
 					// marker-only `--allow-empty` commit (Phase 4 contract)
 					// — preserving Rule 3 evidence without sweeping in any
 					// sibling lane's working-tree changes.
-					const canonicalScope = _internals.readTaskScopes(
-						directory,
-						taskId,
-					);
+					const canonicalScope = _internals.readTaskScopes(directory, taskId);
 					await _internals.commitTaskCompletion(
 						directory,
 						taskId,

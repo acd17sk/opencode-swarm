@@ -30,14 +30,16 @@ interface StubState {
 	recordCalls: number;
 }
 
-function fakeRecord(overrides: Partial<{
-	declaredScope: string[];
-	actualFiles: string[];
-	undeclared: string[];
-	unused: string[];
-	divergenceRatio: number;
-	isClean: boolean;
-}> = {}) {
+function fakeRecord(
+	overrides: Partial<{
+		declaredScope: string[];
+		actualFiles: string[];
+		undeclared: string[];
+		unused: string[];
+		divergenceRatio: number;
+		isClean: boolean;
+	}> = {},
+) {
 	return {
 		timestamp: '2025-01-01T00:00:00Z',
 		sessionID: 's1',

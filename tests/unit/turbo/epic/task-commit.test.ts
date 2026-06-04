@@ -160,7 +160,9 @@ describe('commitTaskCompletion', () => {
 		// commit so `commitsObserved` advances without contamination.
 		_internals.isGitRepo = () => true;
 		_internals.stageScopedPaths = () => {
-			throw new Error('stageScopedPaths must not be called when scope is empty');
+			throw new Error(
+				'stageScopedPaths must not be called when scope is empty',
+			);
 		};
 		_internals.commitAllowEmpty = (cwd: string, message: string) => {
 			calls.push({ fn: 'commitAllowEmpty', args: [cwd, message] });
@@ -169,7 +171,12 @@ describe('commitTaskCompletion', () => {
 
 		const undefScope = await commitTaskCompletion('/tmp/fake', '2.1', 'desc');
 		expect(undefScope.committed).toBe(true);
-		const emptyScope = await commitTaskCompletion('/tmp/fake', '2.2', 'desc', []);
+		const emptyScope = await commitTaskCompletion(
+			'/tmp/fake',
+			'2.2',
+			'desc',
+			[],
+		);
 		expect(emptyScope.committed).toBe(true);
 		// Whitespace-only entries are also filtered out.
 		const whitespaceScope = await commitTaskCompletion(

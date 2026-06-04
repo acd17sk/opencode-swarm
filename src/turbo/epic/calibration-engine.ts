@@ -35,9 +35,9 @@
  *      clean direction. Tests assert this invariant.
  */
 
-import type { DivergenceRecord } from './divergence-recorder.js';
-import type { CalibrationState } from './calibration.js';
 import { normalizePath } from '../lean/conflicts.js';
+import type { CalibrationState } from './calibration.js';
+import type { DivergenceRecord } from './divergence-recorder.js';
 
 export interface ApplyCalibrationOptions {
 	/** Static config value — the absolute ceiling for the threshold. */
@@ -128,7 +128,9 @@ export function applyCalibration(
 		hotModuleAdditions: Array.from(hotSet).sort(),
 		consecutiveCleanCount,
 		lastCalibrationAt:
-			newRecords.length > 0 ? new Date().toISOString() : state.lastCalibrationAt,
+			newRecords.length > 0
+				? new Date().toISOString()
+				: state.lastCalibrationAt,
 		processedRecords: state.processedRecords + newRecords.length,
 	};
 }
@@ -173,5 +175,7 @@ export function effectiveHotModules(
 	if (!state || state.hotModuleAdditions.length === 0) {
 		return Array.from(staticHotModules);
 	}
-	return Array.from(new Set([...staticHotModules, ...state.hotModuleAdditions]));
+	return Array.from(
+		new Set([...staticHotModules, ...state.hotModuleAdditions]),
+	);
 }

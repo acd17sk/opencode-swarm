@@ -13,7 +13,8 @@
  *
  * Toggling only mutates session state (and the durable
  * `.swarm/epic-state.json`); it does not start or stop any execution. The
- * `epic_run_phase` tool is the architect-facing entry that gates execution.
+ * `epic_decide_phase` + `epic_plan_waves` tools (plus per-wave Task dispatch
+ * by the architect) are the architect-facing entries that gate execution.
  */
 
 import { loadPluginConfigWithMeta } from '../config/index.js';
@@ -124,7 +125,7 @@ function enableAndAck(
 	return [
 		'Epic Mode enabled for this session.',
 		'',
-		'The architect will now use the transparent decide-then-dispatch path for phase execution: `declare_scope` (×N pending tasks) → `epic_decide_phase` → `lean_turbo_plan_lanes` → `Task` (×lanes, one message) → `epic_record_divergence`. Each phase decision computes the plan-wide coupling coefficient `p` and chooses promote/demote per the configured thresholds. Promoted phases dispatch coders via opencode\'s `Task` tool so you can click into each parallel coder and watch progress live.',
+		"The architect will now use the transparent decide-then-dispatch wave flow for phase execution: `declare_scope` (×N pending tasks) → `epic_decide_phase` → `epic_plan_waves` → for each wave in order, dispatch `Task` (×taskIds in the wave, ALL in one assistant message) → `epic_record_divergence`. Each phase decision computes the plan-wide coupling coefficient `p` and chooses promote/demote per the configured thresholds. Promoted phases dispatch coders via opencode's `Task` tool so you can click into each concurrent coder and watch progress live.",
 		'',
 		'Run `/swarm epic decide` to see the current verdict without executing.',
 	].join('\n');
@@ -231,9 +232,9 @@ function renderLast(directory: string): string {
 	// session state and only sees decisions made by this session) and
 	// `/swarm epic decide` (a what-if that never writes evidence). `last`
 	// is the user's escape hatch when the architect (e.g. Kimi K2.6) runs
-	// `epic_run_phase` but doesn't surface the verdict — they can pull it
-	// from the log explicitly.
-	let records;
+	// `epic_decide_phase` but doesn't surface the verdict — they can pull
+	// it from the log explicitly.
+	let records: ReturnType<typeof _internals.readPromotionEvidence>;
 	try {
 		records = _internals.readPromotionEvidence(directory);
 	} catch (err) {
@@ -246,7 +247,7 @@ function renderLast(directory: string): string {
 			'No decisions recorded yet at `.swarm/evidence/epic-promotions.jsonl`.',
 			'',
 			'A record is appended every time the architect calls `epic_decide_phase`.',
-			'If you expected one and there isn\'t, the architect likely didn\'t invoke it for this phase — run `/swarm epic decide` to preview what Epic Mode would decide right now.',
+			"If you expected one and there isn't, the architect likely didn't invoke it for this phase — run `/swarm epic decide` to preview what Epic Mode would decide right now.",
 		].join('\n');
 	}
 	const last = records[records.length - 1]!;
@@ -288,13 +289,15 @@ function renderLast(directory: string): string {
 		const missingUpstreams = g.missingUpstreams ?? [];
 		const phantomDeps = g.phantomDeps ?? [];
 		lines.push(
-			`- **greenfield (predecessor evidence)**: ${g.passed ? 'pass' : 'fail'} — ${formatGreenfieldDetail({
-				bypassedNoGit: g.bypassedNoGit === true,
-				passed: g.passed,
-				crossPhaseUpstreams,
-				missingUpstreams,
-				phantomDeps,
-			})}`,
+			`- **greenfield (predecessor evidence)**: ${g.passed ? 'pass' : 'fail'} — ${formatGreenfieldDetail(
+				{
+					bypassedNoGit: g.bypassedNoGit === true,
+					passed: g.passed,
+					crossPhaseUpstreams,
+					missingUpstreams,
+					phantomDeps,
+				},
+			)}`,
 		);
 	}
 	if (records.length > 1) {
@@ -330,7 +333,7 @@ function renderCalibration(directory: string): string {
 		].join('\n');
 	}
 
-	let state;
+	let state: ReturnType<typeof _internals.loadCalibrationState>;
 	try {
 		state = _internals.loadCalibrationState(directory);
 	} catch (err) {
@@ -383,7 +386,9 @@ function renderCalibration(directory: string): string {
 
 	lines.push('### Hot-module additions (learned)');
 	if (state.hotModuleAdditions.length === 0) {
-		lines.push('_None._ The calibration loop hasn\'t promoted any modules to the hot list yet.');
+		lines.push(
+			"_None._ The calibration loop hasn't promoted any modules to the hot list yet.",
+		);
 	} else {
 		const sample = state.hotModuleAdditions.slice(0, 10);
 		for (const m of sample) lines.push(`- ${m}`);
@@ -416,7 +421,8 @@ function renderCalibration(directory: string): string {
 	} else {
 		for (const r of recentDivergent) {
 			const sample = r.undeclared.slice(0, 3).join(', ');
-			const more = r.undeclared.length > 3 ? `, +${r.undeclared.length - 3} more` : '';
+			const more =
+				r.undeclared.length > 3 ? `, +${r.undeclared.length - 3} more` : '';
 			lines.push(
 				`- ${r.taskId} (${r.timestamp.slice(0, 19)}Z, ratio=${r.divergenceRatio.toFixed(2)}) — undeclared: ${sample}${more}`,
 			);
@@ -509,13 +515,15 @@ function formatVerdict(verdict: EpicActivationVerdict): string {
 		const missingUpstreams = g.missingUpstreams ?? [];
 		const phantomDeps = g.phantomDeps ?? [];
 		lines.push(
-			`- greenfield (predecessor evidence): **${g.passed ? 'pass' : 'fail'}** — ${formatGreenfieldDetail({
-				bypassedNoGit: g.bypassedNoGit === true,
-				passed: g.passed,
-				crossPhaseUpstreams,
-				missingUpstreams,
-				phantomDeps,
-			})}`,
+			`- greenfield (predecessor evidence): **${g.passed ? 'pass' : 'fail'}** — ${formatGreenfieldDetail(
+				{
+					bypassedNoGit: g.bypassedNoGit === true,
+					passed: g.passed,
+					crossPhaseUpstreams,
+					missingUpstreams,
+					phantomDeps,
+				},
+			)}`,
 		);
 	}
 	if (verdict.blockingReasons.length > 0) {
@@ -525,7 +533,7 @@ function formatVerdict(verdict: EpicActivationVerdict): string {
 	}
 	lines.push('');
 	lines.push(
-		'_This was a read-only `/swarm epic decide` call — no execution was dispatched and no evidence file was written. To act on this verdict, the architect should declare scopes for all pending tasks, then call `epic_decide_phase` → `lean_turbo_plan_lanes` → `Task` per lane._',
+		'_This was a read-only `/swarm epic decide` call — no execution was dispatched and no evidence file was written. To act on this verdict, the architect should declare scopes for all pending tasks, then call `epic_decide_phase` → `epic_plan_waves` → for each wave, dispatch one `Task` per `taskId` in a single message._',
 	);
 	return lines.join('\n');
 }

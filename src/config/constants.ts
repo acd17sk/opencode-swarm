@@ -296,13 +296,21 @@ export const AGENT_TOOL_MAP: Record<AgentName, ToolName[]> = {
 		// tool map. Same rationale as `epic_run_phase`: it dispatches
 		// coders via opencodeClient internally (outside opencode's Task
 		// tracking), so the user can't observe the parallel agents. The
-		// architect uses `lean_turbo_plan_lanes` + Task dispatch instead —
-		// the same pattern Epic Mode mandates — giving consistent
-		// transparency whether Epic is on or off. The function
+		// architect uses planner + Task dispatch instead.
+		//
+		// Both `epic_plan_waves` and `lean_turbo_plan_lanes` are
+		// unconditionally registered. There is NO runtime gate that
+		// prevents calling the "wrong" one — the architect chooses by
+		// reading the active banner (EPIC_MODE_BANNER mandates
+		// `epic_plan_waves`; the Lean Turbo banner mandates
+		// `lean_turbo_plan_lanes`). The Epic banner is injected ONLY when
+		// Epic Mode is active and suppresses the Lean banner, so under
+		// normal conditions the architect sees one mandate at a time.
 		// `executeLeanTurboRunPhase` remains available for composition
 		// users that don't need architect-level visibility.
 		'lean_turbo_status',
 		'epic_decide_phase',
+		'epic_plan_waves',
 		'epic_record_divergence',
 	],
 	explorer: [
@@ -733,9 +741,17 @@ export const TOOL_DESCRIPTIONS: Partial<Record<ToolName, string>> = {
 	lean_turbo_status:
 		'returns Lean Turbo configuration and active status for the current session',
 	epic_decide_phase:
-		'Compute the Epic Mode verdict for a phase WITHOUT dispatching Lean Turbo. Runs preflight + calibration + the three gates, persists the decision, and returns the verdict so the architect can dispatch lanes via the visible Task tool (promote) or fall back to per-task serial (demote). Pair with `lean_turbo_plan_lanes` to get the lane plan when promoted. Use when /swarm epic is on for the session.',
+		'Compute the Epic Mode verdict for a phase WITHOUT dispatching coders. Runs preflight + calibration + the three gates (p-threshold, hot-module, greenfield), persists the decision, and returns the verdict so the architect can dispatch waves via the visible Task tool (promote) or fall back to per-task serial (demote). Pair with `epic_plan_waves` to get the wave plan when promoted. Use when /swarm epic is on for the session.',
+	epic_plan_waves:
+		"Partition a phase's pending tasks into ordered concurrent waves for Epic Mode dispatch. " +
+		'A wave is a set of tasks with mutually disjoint declared scopes and all dependencies satisfied by prior waves. ' +
+		'Returns `{ waves: [{ waveId, taskIds, files }, ...], serializedTasks, degradedTasks }`. ' +
+		'For each wave in order, the architect dispatches one `Task(subagent_type="coder", ...)` per `taskId` — all in one assistant message — so the wave runs concurrently and each coder appears as a visible subagent. ' +
+		'Wait for the wave to finish before dispatching the next. ' +
+		'Pair with `epic_decide_phase` (called first; this tool is only relevant on a `promote` verdict). ' +
+		'Preflight reject reasons: `no-plan`, `no-phase`, `phase-empty`, `phase-already-complete`, `scopes-missing` (call `declare_scope` for `missingScopes`), `git-failed` (transient — retry), `planner-error`.',
 	epic_record_divergence:
-		'After every `update_task_status(completed)`, record the task\'s declared-vs-actual divergence to .swarm/epic/divergence.jsonl. Feeds Epic Mode\'s self-calibration loop (Capability D). Best-effort: never blocks.',
+		"After every `update_task_status(completed)`, record the task's declared-vs-actual divergence to .swarm/epic/divergence.jsonl. Feeds Epic Mode's self-calibration loop (Capability D). Best-effort: never blocks.",
 };
 
 // Runtime validation: ensure all tool names in AGENT_TOOL_MAP are registered
@@ -1051,14 +1067,23 @@ export const EPIC_MODE_BANNER = `## 🧭 EPIC MODE ACTIVE
 
 **Epic Mode is the autonomous coupling-aware execution layer.** It owns the parallel-vs-serial decision for every phase. Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on.
 
-> **Note:** if your context or pretraining suggests a tool called \`epic_run_phase\`, that tool no longer exists. The decide-then-dispatch flow below replaces it — \`epic_decide_phase\` decides; the architect dispatches via \`Task\`.
+> **Note:** if your context or pretraining suggests a tool called \`epic_run_phase\` or \`lean_turbo_plan_lanes\` (as the Epic dispatcher), neither is the Epic Mode flow. Epic Mode uses \`epic_plan_waves\` for the wave plan, not the lane planner. \`epic_decide_phase\` decides; the architect dispatches via \`Task\` per wave.
 
 ### The phase-execution flow (mandatory, in order)
 
-For EVERY phase you execute, follow these six steps exactly. There is one path — no alternatives.
+For EVERY phase you execute, follow these six steps exactly. There is one flow — no alternatives.
+
+> **Scope-declaration cadence supersedes Rule 1a/3a.** When Epic Mode is active, declare ALL pending scopes UP FRONT (step 1 below), BEFORE \`epic_decide_phase\`. This replaces the default "declare_scope immediately before each coder delegation" rhythm — the wave planner needs the complete scope graph at decision time. If you only declare scopes just-in-time during dispatch, the wave plan you receive is computed against a partial graph and parallelism collapses.
 
 **1. Declare scope for every pending task in the phase.**
-For each pending task in phase N, call \`declare_scope(taskId=X)\` with the exact file paths it will touch. The lane planner reads these scopes to compute parallel lanes; without them it has no graph and falls back to serial. Declare ALL scopes BEFORE step 2 — declaring task-by-task during execution is too late.
+
+> ⚠️ **\`taskId\` MUST be a single id string.** Do NOT pass \`"2.3-2.6"\`, \`"2.3,2.4"\`, arrays, globs, or any range/list syntax — \`declare_scope\` rejects them. Issue ONE \`declare_scope\` call per pending task id.
+
+For each pending task in phase N, call \`declare_scope(taskId="<single id>", files=[...])\` with the exact file paths it will touch. The wave planner reads these scopes to compute concurrent groups; without them it has no graph and falls back to serial. Declare ALL scopes BEFORE step 2 — declaring task-by-task during execution is too late.
+
+Keep scopes tight. If two sibling tasks both claim a shared file (\`__init__.py\`, a registry, a barrel export), the wave planner will split them into separate waves and parallelism dies. Prefer architecture that avoids the shared touch (decorator-based self-registration, separate files) over wider scope claims.
+
+Declared scope is a contract, not advisory: a coder that writes outside its declared files breaks the disjointness assumption the wave planner used for safety. If you discover a task needs more files than declared, \`declare_scope\` AGAIN with the corrected set BEFORE dispatching that task; do not let the coder bash-write past the boundary.
 
 **2. Compute the Epic Mode verdict.**
 Call \`epic_decide_phase(directory, phase=N, sessionID)\`. This runs preflight + calibration + p computation + the three gates (p-threshold, hot-module, greenfield), persists the verdict to \`.swarm/evidence/epic-promotions.jsonl\`, and returns one of:
@@ -1076,15 +1101,35 @@ Call \`epic_decide_phase(directory, phase=N, sessionID)\`. This runs preflight +
 
 The verdict is the user's only visibility into what Epic is doing — silence here makes the mode invisible. If you're going to spend time on this phase, tell the user why up front.
 
-**4. Get the lane plan.**
-Call \`lean_turbo_plan_lanes(directory, phase=N, sessionID)\`. Returns \`[{laneId, taskIds, files}, ...]\` — the partition the lane planner computed from the scope graph.
+**4. Get the wave plan.**
+Call \`epic_plan_waves(directory, phase=N)\`. Returns \`{ waves: [{ waveId, taskIds, files }, ...], serializedTasks, degradedTasks }\` — the wave planner partitions tasks into ordered concurrent groups. Each wave contains tasks whose dependencies are satisfied by completed waves AND whose declared scopes are mutually disjoint.
 
-**5. Dispatch each lane via the \`Task\` tool, ALL IN ONE MESSAGE.**
-For each lane in the plan, issue:
-\`Task(subagent_type="coder", description="Phase N lane <laneId>", prompt="<prompt that includes the lane's task ids + scope + acceptance criteria>")\`
-Issue all Task calls in ONE assistant message so opencode runs them in parallel AND each appears as a visible subagent the user can click into to watch thinking + tool calls + progress live. **This is the only way to dispatch promoted phases.** Do not invoke \`lean_turbo_run_phase\` and do not bundle the dispatch into another tool — visibility requires Task.
+Failure-mode taxonomy — these are NOT the same and require different responses:
+- \`reason: "scopes-missing"\` (returned from step 2 OR step 4) → architect forgot to declare; loop back to step 1 and \`declare_scope\` for each id in \`missingScopes\`.
+- \`serializedTasks: [...]\` in a successful plan → tasks that could not join any wave because of a dependency cycle, classification as \`no-scope\` (the scope file was empty after preflight passed — typically corrupted), or \`invalid-scope\` (path validation rejected every declared file). NOT remediable by \`declare_scope\` alone; you must fix the dependency graph or the scope contents and re-plan. The cap-exhaustion fallback (max_parallel_coders=0) also surfaces here.
+- \`degradedTasks: [...]\` in a successful plan → tasks excluded from the parallel waves but still dispatchable per-task. The \`reason\` field is one of:
+  - \`global file conflict\` — touches a global file (\`package.json\`, lockfiles, root barrel exports). Dispatch in balanced mode after the wave loop.
+  - \`protected path\` — touches a security-sensitive area (auth, secrets, security/). Dispatch in balanced mode after the wave loop.
+  - \`cross-batch upstream not committed (greenfield-smart Rule 3): <ids>\` — a \`depends:\` upstream from a prior phase is NOT in git history. Resolution: verify Epic Mode commit-on-completion is succeeding for those upstreams, or commit them manually, then re-plan.
+  - \`unresolved in-batch dependency: <ids>\` — a \`depends:\` upstream IS in this phase's task set but degraded/serialized (so it won't run in a wave). Resolution: fix the upstream's degrade/serialize cause first, then re-plan.
+  - \`planning leftover (no identifiable blocker)\` — the planner could not place the task and could not identify a blocking dep. Should not happen in practice; surface to the user as a possible planner bug.
+- Other failure reasons (\`no-plan\`, \`no-phase\`, \`phase-empty\`, \`phase-already-complete\`, \`git-failed\`, \`planner-error\`) → apply the same remediation as step 2 (specifically: \`phase-already-complete\` means go back to step 2 with \`epic_decide_phase(phase=N+1)\` — do NOT call \`epic_plan_waves(phase=N+1)\` directly; the new phase needs to be gated and logged).
 
-Wait for all Task calls to complete, then proceed to step 6.
+**5. Dispatch each wave: emit one separate \`Task\` tool call per \`taskId\`, ALL in the same assistant message.**
+
+For each \`wave\` in \`plan.waves\` (in order):
+  a. Emit exactly \`wave.taskIds.length\` separate \`Task\` tool calls — one per \`taskId\`. \`Task(subagent_type="coder", description="Phase N task <taskId>", prompt="<prompt with the task's scope + acceptance criteria>")\`.
+  b. ALL of that wave's \`Task\` calls go in ONE assistant message (single response turn). Opencode runs them concurrently; each appears as a visible subagent the user can click into to watch thinking + tool calls + progress live.
+  c. Wait until every task in the wave has reached \`update_task_status(completed)\` AND had its \`epic_record_divergence\` call (step 6) issued before emitting any \`Task\` call for wave N+1. \`Task\` returning is necessary but not sufficient — the wave is "done" only after the per-task completion + divergence calls land.
+
+> ⚠️ **Three defects to avoid:**
+>  1. **Bundling**: passing multiple ids into one \`Task\` call (e.g. \`description="tasks 2.3-2.6"\` with one combined prompt). A 4-task wave needs 4 \`Task\` tool calls, period. The coder subagents must be 1:1 with \`taskIds\`.
+>  2. **Splitting across messages**: emitting wave-N's Task calls across multiple assistant turns. Opencode then runs them serially and Epic Mode's parallelism is silently lost.
+>  3. **Skipping single-task waves**: a wave with \`taskIds.length === 1\` is still a wave. Emit ONE \`Task\` call in its own assistant message and wait for the completion + divergence sequence. Do NOT collapse it into inline work or skip the visibility step.
+
+**This is the only way to dispatch promoted phases.** Do not invoke \`lean_turbo_run_phase\` and do not bundle the dispatch into another tool — visibility requires Task.
+
+For tasks in \`serializedTasks\` and \`degradedTasks\`: dispatch each one in ONE \`Task\` call per assistant message AFTER the wave loop completes — never batch them. Wait for completion + divergence between each. Apply the reason field as scope guidance (e.g. degraded → balanced mode; serialized → no parallel siblings).
 
 **6. After EACH task transitions to \`completed\` (via \`update_task_status\`), call \`epic_record_divergence(directory, taskId, sessionID)\`.**
 This feeds the calibration loop (Capability D) — it compares the task's declared scope against the files the coder actually wrote. The next phase's \`epic_decide_phase\` will read these records and auto-tighten the activation threshold + grow the hot-module list if divergence was observed. Best-effort: never blocks; missing it just costs one observation.

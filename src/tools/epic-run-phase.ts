@@ -85,9 +85,8 @@ export interface EpicRunPhaseResult {
 	 *  - `'phase-already-complete'` — every task in the requested phase
 	 *    is already `status: 'completed'`. Phase 15 (B35): without this,
 	 *    re-running an already-completed phase silently produced a
-	 *    vacuous-pass `promote` verdict; the architect then called
-	 *    `lean_turbo_plan_lanes` and got an empty plan with no
-	 *    diagnostic.
+	 *    vacuous-pass `promote` verdict; the architect then called the
+	 *    wave planner and got an empty plan with no diagnostic.
 	 *  - `'phase-empty'` — the requested phase exists but its `tasks`
 	 *    array is empty (architect created a phase header but never
 	 *    populated it, or a council edit removed every task). Phase 17
@@ -146,8 +145,8 @@ export const _internals = {
  * This is the shared helper between:
  *  - `epic_run_phase`: legacy unified tool (decide + dispatch in one call) —
  *    calls this then continues with dispatch when verdict is promote.
- *  - `epic_decide_phase`: transparent path (decide only — architect then
- *    dispatches lanes via Task for visibility).
+ *  - `epic_decide_phase`: transparent flow (decide only — architect then
+ *    calls `epic_plan_waves` and dispatches each wave via Task for visibility).
  *
  * Returns the same EpicRunPhaseResult shape with:
  *  - reason: 'decided'  → verdict is promote, caller may dispatch.
@@ -227,10 +226,10 @@ export async function executeEpicDecidePhase(
 		// Phase 15 (B35): if EVERY task in the phase is already completed,
 		// don't run the activation gate at all. Pre-Phase-15 the gate
 		// returned a vacuous-pass `promote` because Phase 14's B29 filter
-		// produced an empty dep set; the architect then called
-		// `lean_turbo_plan_lanes` and got an empty lane plan with no
-		// diagnostic. The right answer is "phase is already done —
-		// advance to the next phase".
+		// produced an empty dep set; the architect then called the wave
+		// planner and got an empty wave plan with no diagnostic. The
+		// right answer is "phase is already done — advance to the next
+		// phase".
 		if (pendingTasks.length === 0) {
 			return {
 				success: false,
@@ -260,8 +259,8 @@ export async function executeEpicDecidePhase(
 				message:
 					`Cannot decide phase ${phase}: ${tasksMissingScope.length} pending task(s) ` +
 					`have no declared scope and no files_touched in plan.json. ` +
-					`Lean Turbo's lane planner needs scope data to compute parallel lanes; without it the ` +
-					`dispatch produces empty lanes and Epic Mode's parallelization is silently broken.\n\n` +
+					`The wave planner (\`epic_plan_waves\`) needs scope data to compute disjoint concurrent groups; ` +
+					`without it the dispatch is silently serial and Epic Mode's parallelization is lost.\n\n` +
 					`Missing scopes: ${list}\n\n` +
 					`Resolution: call \`declare_scope\` once for EACH of those task ids, passing the exact ` +
 					`file paths the task will touch. Then re-invoke \`epic_decide_phase(phase=${phase})\`.`,
@@ -531,7 +530,8 @@ export async function executeEpicDecidePhase(
 	// End of decide-only path. Return verdict to the caller. `epic_run_phase`
 	// (below) continues with Lean Turbo dispatch when reason === 'decided';
 	// `epic_decide_phase` (separate tool) returns here so the architect can
-	// dispatch lanes via Task for full CLI visibility.
+	// call `epic_plan_waves` and dispatch each wave via Task for full CLI
+	// visibility.
 	return {
 		success: true,
 		verdict,
@@ -578,7 +578,8 @@ export async function executeEpicRunPhase(
 	let runError: Error | null = null;
 	let runner: InstanceType<typeof _internals.LeanTurboRunner> | null = null;
 	// Note: Rule 3 (cross-batch upstream-commit enforcement) lives in the
-	// architect-facing `lean_turbo_plan_lanes` tool, per the one-path
+	// architect-facing planner tools (`epic_plan_waves` for Epic Mode,
+	// `lean_turbo_plan_lanes` for legacy Lean Turbo), per the one-flow
 	// enforcement principle (commit db00eb8a). `executeEpicRunPhase` is
 	// retained only for composition users + tests; wiring Rule 3 here is
 	// dead code from the architect's perspective. Composition users who
@@ -633,35 +634,36 @@ export async function executeEpicRunPhase(
 
 /**
  * NOTE: `epic_run_phase` is intentionally NOT exposed as a tool to the
- * architect. The transparent decide-then-dispatch path (epic_decide_phase
- * + lean_turbo_plan_lanes + Task dispatch) is the ONLY supported flow,
- * because it gives the user real-time visibility into the parallel coder
- * agents. The legacy unified-path function `executeEpicRunPhase` remains
+ * architect. The transparent decide-then-dispatch wave flow (`epic_decide_phase`
+ * → `epic_plan_waves` → Task dispatch per wave) is the ONLY supported flow,
+ * because it gives the user real-time visibility into each concurrent coder
+ * agent. The legacy unified-path function `executeEpicRunPhase` remains
  * exported for tests and any composition users, but no ToolDefinition
  * wraps it — so the architect cannot call it and accidentally fall back
- * to the opaque path. This is a deliberate product decision: one path,
+ * to the opaque path. This is a deliberate product decision: one flow,
  * unambiguous, always-visible.
  */
 
 /**
  * Transparent decide-only tool. Returns the verdict (promote/demote/error)
- * without dispatching Lean Turbo. The architect should:
+ * without dispatching coders. The architect should:
  *  1. Call this after declaring scopes for all pending tasks.
  *  2. Surface the verdict to the user.
- *  3. If verdict is `promote`, call `lean_turbo_plan_lanes` to get the lane
- *     plan, then dispatch each lane via the `Task` tool (one Task call per
- *     lane, all in one message for parallel execution). Each Task is a
- *     visible subagent the user can click into for live progress.
+ *  3. If verdict is `promote`, call `epic_plan_waves` to get the wave plan,
+ *     then for each wave dispatch one `Task` per `taskId` in that wave —
+ *     ALL in one assistant message so the wave runs concurrently. Wait for
+ *     the wave to complete, then advance. Each Task is a visible subagent
+ *     the user can click into for live progress.
  *  4. After each task completes (via `update_task_status`), call
  *     `epic_record_divergence` to feed the calibration loop.
  *
- * This is the CLI-visibility path. The legacy `epic_run_phase` bundles
+ * This is the CLI-visibility flow. The legacy `epic_run_phase` bundles
  * decide + dispatch into one opaque tool call where the user can't see
- * the parallel coder agents Lean Turbo spawns.
+ * the concurrent coder agents.
  */
 export const epic_decide_phase: ToolDefinition = createSwarmTool({
 	description:
-		'Compute the Epic Mode verdict for a phase. Runs a scope-graph preflight, rolls the calibration loop forward over any new divergence records, computes the plan-wide coupling coefficient `p`, gates on three checks (p-threshold, hot-module, greenfield), persists the decision to .swarm/evidence/epic-promotions.jsonl, and returns the verdict (promote/demote/error). This tool does NOT dispatch coders; on a `promote` verdict the architect pairs it with `lean_turbo_plan_lanes` to obtain the lane plan, then issues one `Task(subagent_type=\'coder\', ...)` call per lane (all in one assistant message) so each parallel coder appears as a visible subagent. On a `demote` verdict the architect falls back to per-task serial. Use only when /swarm epic is on for the session.',
+		"Compute the Epic Mode verdict for a phase. Runs a scope-graph preflight, rolls the calibration loop forward over any new divergence records, computes the plan-wide coupling coefficient `p`, gates on three checks (p-threshold, hot-module, greenfield), persists the decision to .swarm/evidence/epic-promotions.jsonl, and returns the verdict (promote/demote/error). This tool does NOT dispatch coders; on a `promote` verdict the architect pairs it with `epic_plan_waves` to obtain the wave plan, then for each wave issues one `Task(subagent_type='coder', ...)` per taskId — all in one assistant message — so each concurrent coder appears as a visible subagent. On a `demote` verdict the architect falls back to per-task serial. Use only when /swarm epic is on for the session.",
 	args: {
 		directory: z.string().describe('Project root directory'),
 		phase: z.number().int().positive().describe('Phase number to decide on'),
@@ -670,9 +672,7 @@ export const epic_decide_phase: ToolDefinition = createSwarmTool({
 	execute: async (args: unknown, _directory: string, ctx) => {
 		const { phase, sessionID: argSessionID } = args as EpicRunPhaseArgs;
 		const sessionID =
-			ctx?.sessionID && ctx.sessionID.length > 0
-				? ctx.sessionID
-				: argSessionID;
+			ctx?.sessionID && ctx.sessionID.length > 0 ? ctx.sessionID : argSessionID;
 		return JSON.stringify(
 			await executeEpicDecidePhase({
 				phase,

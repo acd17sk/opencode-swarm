@@ -13,8 +13,8 @@
  *   3. Appends one record to `.swarm/epic/divergence.jsonl`.
  *
  * The calibration engine (`./calibration-engine.ts`) reads this history on
- * the next `epic_run_phase` invocation and uses it to adjust the activation
- * threshold and hot-module list. This module just records.
+ * the next `epic_decide_phase` invocation and uses it to adjust the
+ * activation threshold and hot-module list. This module just records.
  *
  * Pure I/O: never throws to the caller. Failures are logged and swallowed
  * so the task-completion path is never blocked by an audit write.
@@ -103,8 +103,14 @@ interface RecordTaskDivergenceArgs {
 export function recordTaskDivergence(
 	args: RecordTaskDivergenceArgs,
 ): { path: string; record: DivergenceRecord } | null {
-	const { directory, sessionID, taskId, phaseNumber, declaredScope, actualFiles } =
-		args;
+	const {
+		directory,
+		sessionID,
+		taskId,
+		phaseNumber,
+		declaredScope,
+		actualFiles,
+	} = args;
 
 	const { declared, actual, undeclared, unused, divergenceRatio } =
 		computeDivergence(declaredScope, actualFiles);

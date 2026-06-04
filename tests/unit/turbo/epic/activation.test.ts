@@ -164,9 +164,7 @@ describe('decideEpicActivation — greenfield gate (Phase 10: predecessor eviden
 	});
 
 	test('fails when ANY cross-phase upstream is missing its commit', () => {
-		const tasks: CouplingTask[] = [
-			{ id: '2.1', scope: ['src/x.ts'] },
-		];
+		const tasks: CouplingTask[] = [{ id: '2.1', scope: ['src/x.ts'] }];
 		const v = decideEpicActivation(tasks, [], 100, {
 			...DEFAULT_OPTS,
 			crossPhaseUpstreams: ['1.1', '1.2'],
@@ -239,9 +237,7 @@ describe('decideEpicActivation — greenfield-smart Rule 1 (no-git bypass)', () 
 		expect(v.decision).toBe('promote');
 		expect(v.rationale.greenfieldCheck.passed).toBe(true);
 		expect(v.rationale.greenfieldCheck.bypassedNoGit).toBe(true);
-		expect(
-			v.blockingReasons.some((r) => r.includes('greenfield')),
-		).toBe(false);
+		expect(v.blockingReasons.some((r) => r.includes('greenfield'))).toBe(false);
 	});
 
 	test('isGitProject=true with cross-phase upstreams in git → passes (predecessor evidence)', () => {
@@ -385,9 +381,7 @@ describe('decideEpicActivation — Phase 13 phantom-dep separation (B20)', () =>
 		expect(v.decision).toBe('demote');
 		expect(v.rationale.greenfieldCheck.phantomDeps).toEqual(['1.7']);
 		expect(v.rationale.greenfieldCheck.missingUpstreams).toEqual(['1.1']);
-		expect(
-			v.blockingReasons.some((r) => r.includes('phantom dep')),
-		).toBe(true);
+		expect(v.blockingReasons.some((r) => r.includes('phantom dep'))).toBe(true);
 		expect(
 			v.blockingReasons.some((r) => r.includes('predecessor evidence missing')),
 		).toBe(true);

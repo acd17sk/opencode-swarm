@@ -47,9 +47,7 @@ function git(args: string[], cwd: string): { status: number; stdout: string } {
 
 function initGitRepo(dir: string): void {
 	expect(git(['init', '-b', 'main'], dir).status).toBe(0);
-	expect(git(['config', 'user.email', 'test@example.com'], dir).status).toBe(
-		0,
-	);
+	expect(git(['config', 'user.email', 'test@example.com'], dir).status).toBe(0);
 	expect(git(['config', 'user.name', 'Test User'], dir).status).toBe(0);
 	// Prevent GPG signing from blocking tests in environments where the
 	// user's global ~/.gitconfig sets commit.gpgsign = true.
@@ -226,8 +224,10 @@ describe('Epic Mode end-to-end handoff — Rule 2 commit → Rule 3 predicate �
 		// The wip file is still in the working tree (we didn't lose it),
 		// just untracked.
 		expect(fs.existsSync(wipFile)).toBe(true);
-		const status = git(['status', '--porcelain', 'src/other-lane-wip.ts'], dir)
-			.stdout;
+		const status = git(
+			['status', '--porcelain', 'src/other-lane-wip.ts'],
+			dir,
+		).stdout;
 		expect(status).toMatch(/^\?\? /);
 	});
 
@@ -290,9 +290,7 @@ describe('Epic Mode end-to-end handoff — Rule 2 commit → Rule 3 predicate �
 
 	test('Phase 8 no-side-effect: non-Epic projects do NOT have .swarm/epic-state.json seeded by update_task_status', async () => {
 		// Fresh dir, fresh git repo, NO enableEpicMode call.
-		const freshDir = fs.mkdtempSync(
-			path.join(os.tmpdir(), 'epic-no-seed-'),
-		);
+		const freshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'epic-no-seed-'));
 		try {
 			initGitRepo(freshDir);
 			fs.mkdirSync(path.join(freshDir, '.swarm'), { recursive: true });
@@ -372,8 +370,8 @@ describe('Epic Mode end-to-end handoff — Rule 2 commit → Rule 3 predicate �
 		writeScopeFile(dir, '1.1', []);
 		await updateTaskStatus(dir, '1.1', 'completed');
 
-		const subjects = git(['log', '--pretty=%s'], dir).stdout
-			.split('\n')
+		const subjects = git(['log', '--pretty=%s'], dir)
+			.stdout.split('\n')
 			.filter((s) => s.startsWith('swarm('));
 		expect(subjects.length).toBe(1);
 

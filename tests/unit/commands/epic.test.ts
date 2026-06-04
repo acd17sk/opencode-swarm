@@ -390,9 +390,7 @@ describe('handleEpicCommand — last (most recent decision from evidence)', () =
 		expect(out).toContain('Phase: 2');
 		expect(out).toContain('Decision: **demote**');
 		expect(out).toContain('p: 0.550');
-		expect(out).toContain(
-			'p (0.550) exceeds activation threshold (0.300)',
-		);
+		expect(out).toContain('p (0.550) exceeds activation threshold (0.300)');
 		expect(out).toContain('plan touches Lean Turbo hot module(s)');
 		// Gate-by-gate section
 		expect(out).toContain('p-threshold');
@@ -483,7 +481,7 @@ describe('handleEpicCommand — calibration (Capability D state)', () => {
 		_internals.readDivergenceHistory = (() => []) as never;
 		const out = await handleEpicCommand('/fake', ['calibration'], 'sess-1');
 		expect(out).toContain('using static — no calibration override');
-		expect(out).toContain('hasn\'t promoted any modules');
+		expect(out).toContain("hasn't promoted any modules");
 		expect(out).toContain('None recent');
 	});
 

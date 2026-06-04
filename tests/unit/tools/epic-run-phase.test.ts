@@ -677,8 +677,18 @@ describe('executeEpicRunPhase — scope-missing preflight (live-test escalation)
 					id: 1,
 					name: 'P1',
 					tasks: [
-						{ id: '1.1', description: 'a', status: 'pending', files_touched: [] },
-						{ id: '1.2', description: 'b', status: 'pending', files_touched: [] },
+						{
+							id: '1.1',
+							description: 'a',
+							status: 'pending',
+							files_touched: [],
+						},
+						{
+							id: '1.2',
+							description: 'b',
+							status: 'pending',
+							files_touched: [],
+						},
 					],
 				},
 			],
@@ -705,7 +715,12 @@ describe('executeEpicRunPhase — scope-missing preflight (live-test escalation)
 					id: 1,
 					name: 'P1',
 					tasks: [
-						{ id: '1.1', description: 'a', status: 'pending', files_touched: [] },
+						{
+							id: '1.1',
+							description: 'a',
+							status: 'pending',
+							files_touched: [],
+						},
 					],
 				},
 			],
@@ -757,7 +772,12 @@ describe('executeEpicRunPhase — scope-missing preflight (live-test escalation)
 					id: 1,
 					name: 'P1',
 					tasks: [
-						{ id: '1.1', description: 'a', status: 'completed', files_touched: [] },
+						{
+							id: '1.1',
+							description: 'a',
+							status: 'completed',
+							files_touched: [],
+						},
 						{
 							id: '1.2',
 							description: 'b',
@@ -785,15 +805,30 @@ describe('executeEpicRunPhase — scope-missing preflight (live-test escalation)
 					id: 2,
 					name: 'P2',
 					tasks: [
-						{ id: '2.1', description: 'a', status: 'pending', files_touched: [] },
-						{ id: '2.2', description: 'b', status: 'pending', files_touched: [] },
+						{
+							id: '2.1',
+							description: 'a',
+							status: 'pending',
+							files_touched: [],
+						},
+						{
+							id: '2.2',
+							description: 'b',
+							status: 'pending',
+							files_touched: [],
+						},
 						{
 							id: '2.3',
 							description: 'c',
 							status: 'pending',
 							files_touched: ['src/c.ts'],
 						},
-						{ id: '2.4', description: 'd', status: 'completed', files_touched: [] },
+						{
+							id: '2.4',
+							description: 'd',
+							status: 'completed',
+							files_touched: [],
+						},
 					],
 				},
 			],
@@ -886,7 +921,12 @@ describe('executeEpicDecidePhase — transparent decide-only path', () => {
 					id: 1,
 					name: 'P1',
 					tasks: [
-						{ id: '1.1', description: 'a', status: 'pending', files_touched: [] },
+						{
+							id: '1.1',
+							description: 'a',
+							status: 'pending',
+							files_touched: [],
+						},
 					],
 				},
 			],

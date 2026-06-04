@@ -88,6 +88,7 @@ export type ToolName =
 	| 'lean_turbo_run_phase'
 	| 'lean_turbo_status'
 	| 'epic_decide_phase'
+	| 'epic_plan_waves'
 	| 'epic_record_divergence';
 
 /** Readonly array of all tool names */
@@ -175,6 +176,7 @@ export const TOOL_NAMES: readonly ToolName[] = [
 	'lean_turbo_run_phase',
 	'lean_turbo_status',
 	'epic_decide_phase',
+	'epic_plan_waves',
 	'epic_record_divergence',
 ] as const;
 

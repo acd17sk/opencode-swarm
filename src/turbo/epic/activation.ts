@@ -29,7 +29,11 @@
  */
 
 import type { CoChangeEntry } from '../../tools/co-change-analyzer.js';
-import { isGlobalFile, isProtectedPath, normalizePath } from '../lean/conflicts.js';
+import {
+	isGlobalFile,
+	isProtectedPath,
+	normalizePath,
+} from '../lean/conflicts.js';
 import type { CouplingTask } from './coupling-report.js';
 import { computeCouplingReport } from './coupling-report.js';
 

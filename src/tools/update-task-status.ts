@@ -1081,7 +1081,9 @@ export async function executeUpdateTaskStatus(
 	// up to ~3 seconds of accumulated wait — enough to absorb a
 	// 4-lane finish-burst plus Rule 2's 1.5s index.lock retry held
 	// inside the critical section.
-	const PLAN_LOCK_BACKOFF_MS: readonly number[] = [50, 100, 200, 400, 800, 1600];
+	const PLAN_LOCK_BACKOFF_MS: readonly number[] = [
+		50, 100, 200, 400, 800, 1600,
+	];
 	let lockResult: Awaited<ReturnType<typeof tryAcquireLock>> | undefined;
 	let lockError: unknown = null;
 	for (let attempt = 0; attempt <= PLAN_LOCK_BACKOFF_MS.length; attempt++) {

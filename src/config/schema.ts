@@ -1479,11 +1479,12 @@ export const EpicConfigSchema = z
 			.optional(),
 		/**
 		 * Epic mode activation settings (Capability C). When `enabled`, the
-		 * `/swarm epic` command and `epic_run_phase` tool become usable; they
-		 * compute `p` over the plan, gate on the activation threshold + hot
-		 * modules + greenfield rule, and either invoke Lean Turbo's lane
-		 * planner (when promoted) or fall back to the standard serial path
-		 * (when demoted). Default off — opt-in.
+		 * `/swarm epic` command and the architect-facing flow
+		 * (`epic_decide_phase` → `epic_plan_waves` → `Task` per wave) become
+		 * usable; they compute `p` over the plan, gate on the activation
+		 * threshold + hot modules + greenfield rule, and either dispatch via
+		 * the wave planner (when promoted) or fall back to the standard
+		 * serial path (when demoted). Default off — opt-in.
 		 */
 		mode: z
 			.object({
@@ -1511,8 +1512,8 @@ export const EpicConfigSchema = z
 		 * Epic Mode calibration (Capability D). Outcome-based self-tuning.
 		 * After every task completion `epic_record_divergence` appends a
 		 * record to `.swarm/epic/divergence.jsonl` comparing declared scope
-		 * to actual files modified. On every `epic_run_phase` the calibration
-		 * engine consumes any new records and adjusts two knobs:
+		 * to actual files modified. On every `epic_decide_phase` the
+		 * calibration engine consumes any new records and adjusts two knobs:
 		 *
 		 *   - `activationThresholdOverride` — tightens (toward zero) on
 		 *     divergence; loosens (toward `mode.activation_threshold`) only

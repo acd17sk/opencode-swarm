@@ -29,8 +29,8 @@
  */
 
 import {
-	isGitRepo as isGitRepo_import,
 	_internals as gitBranchInternals,
+	isGitRepo as isGitRepo_import,
 } from '../../git/branch.js';
 import { criticalWarn } from '../../utils/logger.js';
 

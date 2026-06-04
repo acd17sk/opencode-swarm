@@ -232,9 +232,9 @@ describe('updateTaskStatus Rule 2 auto-commit centralization', () => {
 			'completed',
 		);
 		const reloaded = await loadPlan(tempDir);
-		expect(
-			reloaded?.phases[0].tasks.find((t) => t.id === '1.1')?.status,
-		).toBe('completed');
+		expect(reloaded?.phases[0].tasks.find((t) => t.id === '1.1')?.status).toBe(
+			'completed',
+		);
 	});
 
 	it('scope source is .swarm/scopes/scope-<id>.json (NOT plan-ledger files_touched)', async () => {

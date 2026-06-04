@@ -55,8 +55,7 @@ describe('buildIsUpstreamCommitted', () => {
 	});
 
 	test('predicate returns false for task IDs that never appear', () => {
-		_internals.readGitLogSubjects = () =>
-			['swarm(task 1.1): foo'].join('\n');
+		_internals.readGitLogSubjects = () => ['swarm(task 1.1): foo'].join('\n');
 
 		const isCommitted = buildIsUpstreamCommitted('/tmp/fake');
 		expect(isCommitted('1.2')).toBe(false);

@@ -88,7 +88,9 @@ describe('Git Branch Module', () => {
 
 			branch.isGitRepo(testCwd);
 
-			const argv = (mockSpawnSync.mock.calls[0] as [string, string[], unknown])[1];
+			const argv = (
+				mockSpawnSync.mock.calls[0] as [string, string[], unknown]
+			)[1];
 			// The -c overrides must precede the subcommand.
 			expect(argv.slice(0, 4)).toEqual([
 				'-c',
@@ -644,7 +646,9 @@ describe('Git Branch Module', () => {
 			// Phase 11 prepended `-c commit.gpgsign=false -c tag.gpgsign=false` to
 			// every gitExec invocation, so positional indexing into the argv is
 			// no longer stable. Assert against the joined argv string instead.
-			const logArgv = (mockSpawnSync.mock.calls[3] as [string, string[], unknown])[1];
+			const logArgv = (
+				mockSpawnSync.mock.calls[3] as [string, string[], unknown]
+			)[1];
 			expect(logArgv.join(' ')).toContain('origin/main');
 		});
 

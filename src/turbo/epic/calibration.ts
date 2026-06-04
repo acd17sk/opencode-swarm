@@ -135,7 +135,9 @@ function ensureSwarmEpicDir(directory: string): string {
  * normal read proceeds. Without this, a long-lived plugin process would keep
  * returning null until manually told to repair (adversarial review H2).
  */
-export function loadCalibrationState(directory: string): CalibrationState | null {
+export function loadCalibrationState(
+	directory: string,
+): CalibrationState | null {
 	if (stateUnreadableMap.get(directory)) {
 		repairCalibrationUnreadable(directory);
 		if (stateUnreadableMap.get(directory)) return null;
@@ -207,9 +209,7 @@ export function saveCalibrationState(
 		fs.renameSync(tmpPath, filePath);
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
-		logger.error(
-			`[epic/calibration] atomic rename failed: ${msg}`,
-		);
+		logger.error(`[epic/calibration] atomic rename failed: ${msg}`);
 		try {
 			if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
 		} catch {

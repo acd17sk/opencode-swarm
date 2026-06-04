@@ -114,8 +114,9 @@ describe('recordTaskDivergence', () => {
 
 		const filePath = path.join(dir, '.swarm', 'epic', 'divergence.jsonl');
 		expect(fs.existsSync(filePath)).toBe(true);
-		expect(fs.readFileSync(filePath, 'utf-8').split('\n').filter(Boolean))
-			.toHaveLength(1);
+		expect(
+			fs.readFileSync(filePath, 'utf-8').split('\n').filter(Boolean),
+		).toHaveLength(1);
 	});
 
 	test('appends multiple records in chronological order', () => {
@@ -239,8 +240,8 @@ describe('readDivergenceHistory', () => {
 		expect(tail[tail.length - 1]?.taskId).toBe('T-4');
 		// Records present must form a contiguous tail (no gaps).
 		const taskIds = tail.map((r) => r.taskId);
-		const ascending = [...taskIds].sort((a, b) =>
-			Number(a.split('-')[1]) - Number(b.split('-')[1]),
+		const ascending = [...taskIds].sort(
+			(a, b) => Number(a.split('-')[1]) - Number(b.split('-')[1]),
 		);
 		expect(taskIds).toEqual(ascending);
 	});
