@@ -30,8 +30,9 @@ beforeEach(() => {
 	disableCalls = 0;
 	sessionFlag = { id: 'sess-1', turboMode: false, epicModeActive: false };
 
-	_internals.getAgentSession = ((id: string) =>
-		id === 'sess-1' ? (sessionFlag as never) : null) as never;
+	// `/swarm epic` bootstraps the agent session via `ensureAgentSession`,
+	// so the stub always returns the session flag regardless of id.
+	_internals.ensureAgentSession = (() => sessionFlag as never) as never;
 	_internals.isEpicModeActive = (() => active) as never;
 	_internals.isStateUnreadable = (() => false) as never;
 	_internals.loadEpicSessionState = (() => sessionStateStored) as never;
@@ -108,9 +109,15 @@ describe('handleEpicCommand — session validation', () => {
 		expect(out).toContain('No active session context');
 	});
 
-	test('rejects when getAgentSession returns null', async () => {
-		const out = await handleEpicCommand('/fake', [], 'ghost-session');
-		expect(out).toContain('No active session');
+	test('bootstraps the agent session when no architect has spoken yet', async () => {
+		// Previously rejected with "No active session" when the architect
+		// hadn't initialized a session yet — that error was a chicken-and-egg
+		// UX bug since `/swarm epic` is a session-state command. The new
+		// behavior creates the session lazily via `ensureAgentSession` and
+		// proceeds with the toggle. Bare `/swarm epic` (no arg) renders the
+		// status string, not an error.
+		const out = await handleEpicCommand('/fake', [], 'fresh-session');
+		expect(out).not.toContain('No active session');
 	});
 });
 

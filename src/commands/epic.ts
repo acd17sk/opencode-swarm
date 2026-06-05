@@ -20,7 +20,7 @@
 import { loadPluginConfigWithMeta } from '../config/index.js';
 import { isGitRepo } from '../git/branch.js';
 import { loadPlanJsonOnly } from '../plan/manager.js';
-import { getAgentSession } from '../state.js';
+import { ensureAgentSession } from '../state.js';
 import {
 	decideEpicActivation,
 	type EpicActivationVerdict,
@@ -51,7 +51,7 @@ export const _internals = {
 	loadPlanJsonOnly,
 	getCoChangeData,
 	decideEpicActivation,
-	getAgentSession,
+	ensureAgentSession,
 	isEpicModeActive,
 	isStateUnreadable,
 	loadEpicSessionState,
@@ -73,10 +73,14 @@ export async function handleEpicCommand(
 	if (!sessionID || sessionID.trim() === '') {
 		return 'Error: No active session context. Epic Mode requires an active session. Use /swarm epic from within an OpenCode session.';
 	}
-	const session = _internals.getAgentSession(sessionID);
-	if (!session) {
-		return 'Error: No active session. Epic Mode requires an active session to operate.';
-	}
+	// Bootstrap the agent session if needed. `/swarm epic` is a session-state
+	// command — it should not fail because the architect hasn't spoken yet
+	// (the toggle directly affects the architect's next prompt). Idempotent.
+	const session = _internals.ensureAgentSession(
+		sessionID,
+		undefined,
+		directory,
+	);
 
 	const arg0 = args[0]?.toLowerCase();
 
@@ -110,7 +114,7 @@ export async function handleEpicCommand(
 function enableAndAck(
 	directory: string,
 	sessionID: string,
-	session: NonNullable<ReturnType<typeof _internals.getAgentSession>>,
+	session: ReturnType<typeof _internals.ensureAgentSession>,
 ): string {
 	try {
 		_internals.enableEpicMode(directory, sessionID);
@@ -134,7 +138,7 @@ function enableAndAck(
 function disableAndAck(
 	directory: string,
 	sessionID: string,
-	session: NonNullable<ReturnType<typeof _internals.getAgentSession>>,
+	session: ReturnType<typeof _internals.ensureAgentSession>,
 ): string {
 	try {
 		_internals.disableEpicMode(directory, sessionID);
