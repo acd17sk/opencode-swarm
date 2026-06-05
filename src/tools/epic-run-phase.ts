@@ -645,6 +645,106 @@ export async function executeEpicRunPhase(
  */
 
 /**
+ * Format the MANDATORY user-facing surface block for `epic_decide_phase`.
+ *
+ * Live-test discovery (Kimi K2.6, fair-clinical-bench Phase 3, 2026-06-05):
+ * the EPIC_MODE_BANNER's "MANDATORY SURFACE" wording reached the architect
+ * (we verified by observing the six-step flow ran correctly), but the
+ * model SKIPPED both required surfaces — went straight from
+ * `epic_decide_phase` → `epic_plan_waves` → `Task` with no user-facing
+ * verdict OR wave plan emitted. Banner-level instruction is necessary
+ * but insufficient: weaker models with thinking turns prefer to keep
+ * calling tools over emitting prose between calls.
+ *
+ * Fix at the tool-result layer instead. The tool now returns a string
+ * that LEADS with the literal surface text the architect must echo,
+ * pre-formatted server-side, with an imperative "STOP. copy verbatim
+ * NOW. Do not call any tool yet." prelude. This is more enforceable
+ * than the banner because:
+ *
+ *   (a) The required text is the FIRST thing in the most recent tool
+ *       result — high salience, low energy to comply.
+ *   (b) The text is rendered server-side — no synthesis required, just
+ *       a copy. The model can't "format it wrong" or skip the format step.
+ *   (c) The "do not call any tool" instruction is colocated with the
+ *       data it constrains.
+ *
+ * Returns '' (empty string) for outcomes the banner doesn't mandate a
+ * surface for (`scopes-missing`, `phase-already-complete`, `no-phase`,
+ * etc.) — for those, the architect handles the response silently as
+ * retries/fixes.
+ */
+export async function formatVerdictSurfaceBlock(
+	result: EpicRunPhaseResult,
+	directory: string,
+	phase: number,
+): Promise<string> {
+	const v = result.verdict;
+	if (!v) return '';
+	if (result.reason !== 'decided' && result.reason !== 'demoted') return '';
+
+	const decision = v.decision === 'promote' ? 'PROMOTE' : 'DEMOTE';
+	const p = v.p.toFixed(3);
+	const reason =
+		v.blockingReasons && v.blockingReasons.length > 0
+			? v.blockingReasons[0]
+			: v.decision === 'promote'
+				? 'all activation gates cleared'
+				: 'activation gates blocked';
+
+	// Best-effort: read plan.json for the dependency edges to surface.
+	// `executeEpicDecidePhase` already read plan.json once; a second read
+	// here is cheap and keeps this helper self-contained. Failure to read
+	// the plan just drops the deps line — the verdict still surfaces.
+	let depsLine = 'Dependencies: (plan unreadable — surface verdict only)';
+	try {
+		const plan = await _internals.loadPlanJsonOnly(directory);
+		const phaseInPlan = plan?.phases.find(
+			(ph: { id: number }) => ph.id === phase,
+		);
+		if (phaseInPlan) {
+			const depPairs = (phaseInPlan.tasks ?? [])
+				.filter(
+					(t: { status?: string; depends?: string[] }) =>
+						t.status !== 'completed' && (t.depends?.length ?? 0) > 0,
+				)
+				.map(
+					(t: { id: string; depends?: string[] }) =>
+						`${t.id} ← ${(t.depends ?? []).join(', ')}`,
+				);
+			depsLine =
+				depPairs.length > 0
+					? `Dependencies: ${depPairs.join('; ')}`
+					: 'Dependencies: (none — every task has no upstream)';
+		}
+	} catch {
+		/* swallow — surface verdict regardless */
+	}
+
+	const followup =
+		v.decision === 'promote'
+			? `AFTER surfacing, call epic_plan_waves(directory, phase=${phase}) next.`
+			: 'AFTER surfacing, fall back to per-task serial dispatch.';
+
+	return [
+		'═══════════════════════════════════════════════════════════════',
+		'STOP. MANDATORY USER-FACING SURFACE — banner step 3.',
+		'Your next assistant message MUST begin with the two lines below,',
+		'between the ▶ markers, COPIED VERBATIM. Do NOT call any tool',
+		'until those lines have been emitted to the user.',
+		'═══════════════════════════════════════════════════════════════',
+		'',
+		`▶ Epic Mode: ${decision} (p=${p}) — ${reason}`,
+		`▶ ${depsLine}`,
+		'',
+		'═══════════════════════════════════════════════════════════════',
+		followup,
+		'═══════════════════════════════════════════════════════════════',
+		'',
+	].join('\n');
+}
+
+/**
  * Transparent decide-only tool. Returns the verdict (promote/demote/error)
  * without dispatching coders. The architect should:
  *  1. Call this after declaring scopes for all pending tasks.
@@ -673,14 +773,12 @@ export const epic_decide_phase: ToolDefinition = createSwarmTool({
 		const { phase, sessionID: argSessionID } = args as EpicRunPhaseArgs;
 		const sessionID =
 			ctx?.sessionID && ctx.sessionID.length > 0 ? ctx.sessionID : argSessionID;
-		return JSON.stringify(
-			await executeEpicDecidePhase({
-				phase,
-				sessionID,
-				directory: _directory,
-			}),
-			null,
-			2,
-		);
+		const result = await executeEpicDecidePhase({
+			phase,
+			sessionID,
+			directory: _directory,
+		});
+		const surface = await formatVerdictSurfaceBlock(result, _directory, phase);
+		return surface + JSON.stringify(result, null, 2);
 	},
 });

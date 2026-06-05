@@ -74,6 +74,23 @@ export declare const _internals: {
     buildIsUpstreamCommittedWithStatus: typeof buildIsUpstreamCommittedWithStatus_import;
     loadPluginConfigWithMeta: typeof loadPluginConfigWithMeta_import;
 };
+/**
+ * Format the MANDATORY user-facing surface block for `epic_plan_waves`.
+ *
+ * Same enforcement strategy as `formatVerdictSurfaceBlock` in
+ * `epic-run-phase.ts`: the EPIC_MODE_BANNER's step-4b "MANDATORY SURFACE"
+ * wording reached the architect (Kimi K2.6, fair-clinical-bench Phase 3,
+ * 2026-06-05) but was silently ignored — the model dispatched a single
+ * `Task` call with no wave plan emitted to the user. Banner-level
+ * instruction is insufficient.
+ *
+ * Tool-side fix: prepend the literal surface text the architect must
+ * echo, pre-formatted, with an imperative "STOP. copy verbatim NOW.
+ * Do not dispatch any Task yet." prelude. Returns '' on failures the
+ * banner doesn't mandate a surface for (`scopes-missing`,
+ * `phase-already-complete`, `no-phase`, etc.).
+ */
+export declare function formatWavePlanSurfaceBlock(result: EpicPlanWavesResult, phase: number): string;
 /** Tool definition for `epic_plan_waves`. */
 export declare const epic_plan_waves: ToolDefinition;
 export {};

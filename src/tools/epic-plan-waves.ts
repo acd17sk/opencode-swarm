@@ -297,6 +297,74 @@ export const _internals = {
 	loadPluginConfigWithMeta: loadPluginConfigWithMeta_import,
 };
 
+/**
+ * Format the MANDATORY user-facing surface block for `epic_plan_waves`.
+ *
+ * Same enforcement strategy as `formatVerdictSurfaceBlock` in
+ * `epic-run-phase.ts`: the EPIC_MODE_BANNER's step-4b "MANDATORY SURFACE"
+ * wording reached the architect (Kimi K2.6, fair-clinical-bench Phase 3,
+ * 2026-06-05) but was silently ignored — the model dispatched a single
+ * `Task` call with no wave plan emitted to the user. Banner-level
+ * instruction is insufficient.
+ *
+ * Tool-side fix: prepend the literal surface text the architect must
+ * echo, pre-formatted, with an imperative "STOP. copy verbatim NOW.
+ * Do not dispatch any Task yet." prelude. Returns '' on failures the
+ * banner doesn't mandate a surface for (`scopes-missing`,
+ * `phase-already-complete`, `no-phase`, etc.).
+ */
+export function formatWavePlanSurfaceBlock(
+	result: EpicPlanWavesResult,
+	phase: number,
+): string {
+	if (!result.success || !result.waves) return '';
+
+	const waves = result.waves;
+	const serialized = result.serializedTasks ?? [];
+	const degraded = result.degradedTasks ?? [];
+
+	const waveLines = waves.map((w) => {
+		const ids = w.taskIds.join(', ');
+		const fileSample = w.files.slice(0, 3).join(', ');
+		const filesShown =
+			w.files.length > 3
+				? `${fileSample}, +${w.files.length - 3} more`
+				: fileSample || '(no files)';
+		return `▶ - Wave ${w.waveId}: [${ids}] — ${filesShown}`;
+	});
+
+	const degradedIds = degraded.map((d) => d.taskId).join(', ') || '(none)';
+	const serializedIds = serialized.join(', ') || '(none)';
+
+	// Dispatch instruction depends on whether wave 1 has multiple tasks.
+	const firstWave = waves[0];
+	const followup = firstWave
+		? firstWave.taskIds.length > 1
+			? `AFTER surfacing, dispatch Wave 1: ${firstWave.taskIds.length} SEPARATE Task calls in ONE assistant message (one per id: ${firstWave.taskIds.join(', ')}).`
+			: `AFTER surfacing, dispatch Wave 1: ONE Task call for ${firstWave.taskIds[0]} (single-task wave — do NOT skip).`
+		: serialized.length > 0 || degraded.length > 0
+			? 'AFTER surfacing, dispatch serialized/degraded tasks one Task per assistant message.'
+			: 'AFTER surfacing, no tasks to dispatch — call phase_complete.';
+
+	return [
+		'═══════════════════════════════════════════════════════════════',
+		'STOP. MANDATORY USER-FACING SURFACE — banner step 4b.',
+		'Your next assistant message MUST begin with the block below,',
+		'between the ▶ markers, COPIED VERBATIM. Do NOT call any Task',
+		'tool until this block has been emitted to the user.',
+		'═══════════════════════════════════════════════════════════════',
+		'',
+		`▶ Wave plan (phase ${phase}, ${waves.length} wave${waves.length === 1 ? '' : 's'}):`,
+		...waveLines,
+		`▶ Serialized: [${serializedIds}]  Degraded: [${degradedIds}]`,
+		'',
+		'═══════════════════════════════════════════════════════════════',
+		followup,
+		'═══════════════════════════════════════════════════════════════',
+		'',
+	].join('\n');
+}
+
 /** Tool definition for `epic_plan_waves`. */
 export const epic_plan_waves: ToolDefinition = createSwarmTool({
 	description:
@@ -321,10 +389,11 @@ export const epic_plan_waves: ToolDefinition = createSwarmTool({
 	},
 	execute: async (args: unknown, _directory: string) => {
 		const parsed = args as EpicPlanWavesArgs;
-		return JSON.stringify(
-			await executeEpicPlanWaves({ ...parsed, directory: _directory }),
-			null,
-			2,
-		);
+		const result = await executeEpicPlanWaves({
+			...parsed,
+			directory: _directory,
+		});
+		const surface = formatWavePlanSurfaceBlock(result, parsed.phase);
+		return surface + JSON.stringify(result, null, 2);
 	},
 });

@@ -566,7 +566,7 @@ Use \`epic_plan_waves\` (NOT \`lean_turbo_plan_lanes\` or the deprecated \`epic_
 > Epic Mode: <PROMOTE|DEMOTE> (p=<0.XXX>) — <rationale OR verdict.blockingReasons[0]>
 > Dependencies: <task_id> ← <deps>; <task_id> ← <deps>; ... (omit empty)
 
-NO commentary, NO reads, NO other tool calls before these two lines. Step 4 is forbidden until both lines are emitted. Skipping = banner violation; user loses all visibility.
+The \`epic_decide_phase\` tool result already begins with these two lines, pre-formatted between ▶ markers — copy them VERBATIM (strip the ▶ prefix). NO commentary, NO reads, NO other tool calls before they are emitted. Step 4 is forbidden until both lines reach the user. Skipping = banner violation; user loses all visibility.
 
 **4. \`epic_plan_waves(directory, phase=N)\`** — returns \`{ waves: [{ waveId, taskIds, files }], serializedTasks, degradedTasks, degradationSummary }\`. Failure reasons mirror step 2; additionally: \`git-failed\` (retry), \`planner-error\` (check \`errors[0]\`).
 
@@ -576,8 +576,8 @@ NO commentary, NO reads, NO other tool calls before these two lines. Step 4 is f
 > - ...
 > Serialized: [<ids>]  Degraded: [<ids>]
 
-If \`waves.length\` exceeds the distinct-dependency-layer count, ALSO emit a one-line diagnosis (typical cause: shared file in multiple scopes). Example:
-> ⚠ Wave 3 split into 4 single-task waves because every scope claims \`models/__init__.py\`. Restore parallelism by re-declaring 2.3-2.6 without \`__init__.py\` (use decorator self-registration), then re-call epic_plan_waves.
+The \`epic_plan_waves\` tool result already begins with this block, pre-formatted between ▶ markers — copy it VERBATIM (strip the ▶ prefix). If \`waves.length\` exceeds the distinct-dependency-layer count, ALSO emit a one-line diagnosis (typical cause: a shared file like a barrel/registry appears in multiple task scopes, forcing serial waves). Diagnosis shape:
+> ⚠ Wave N over-split into K single-task waves because every scope claims \`<shared-file>\`. Restore parallelism by re-declaring those tasks without \`<shared-file>\` (or move shared-file edits into a single dedicated task), then re-call epic_plan_waves.
 
 Skipping = banner violation.
 
