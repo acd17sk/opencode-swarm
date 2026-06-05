@@ -343,11 +343,11 @@ export function formatWavePlanSurfaceBlock(
 	const firstWave = waves[0];
 	const nextStep = firstWave
 		? firstWave.taskIds.length > 1
-			? `then dispatch wave 1 as ${firstWave.taskIds.length} parallel Task calls (${firstWave.taskIds.join(', ')}) in one message.`
-			: `then dispatch wave 1 as one Task call (${firstWave.taskIds[0]}).`
+			? `dispatch wave 1 as ${firstWave.taskIds.length} parallel Task calls (${firstWave.taskIds.join(', ')}) in one message.`
+			: `dispatch wave 1 as one Task call (${firstWave.taskIds[0]}).`
 		: serialized.length > 0 || degraded.length > 0
-			? 'then dispatch the serialized/degraded tasks one at a time.'
-			: 'then call phase_complete — nothing to dispatch.';
+			? 'dispatch the serialized/degraded tasks one at a time.'
+			: 'call phase_complete — nothing to dispatch.';
 
 	// Lighter-touch surface (2026-06-05): facts + a plain nudge to share them,
 	// not a STOP/COPY-VERBATIM compliance block. See the matching rationale in
@@ -357,7 +357,7 @@ export function formatWavePlanSurfaceBlock(
 		...waveLines,
 		`Serialized: ${serializedIds}. Degraded: ${degradedIds}.`,
 		'',
-		`Tell the user this breakdown in your own words, ${nextStep}`,
+		`Walk the user through this breakdown in your own words — name which tasks are in which wave, what runs in parallel, and anything serialized/degraded — using the computed numbers above (not a guess). Then ${nextStep}`,
 		'',
 	].join('\n');
 }

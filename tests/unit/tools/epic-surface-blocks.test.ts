@@ -72,8 +72,10 @@ describe('formatVerdictSurfaceBlock', () => {
 		// Only 3.3 has deps; 3.1/3.2 omitted.
 		expect(out).toContain('Dependencies: 3.3 ← 3.2');
 		expect(out).not.toContain('3.1 ←');
-		// Natural-narration nudge + next-step guidance.
-		expect(out).toContain('Tell the user the decision');
+		// Natural-narration nudge that enumerates ALL facts (so the model
+		// can't drop dependencies, as it did live on 2026-06-05) + next step.
+		expect(out).toContain('include ALL of these');
+		expect(out).toContain('dependency chain above');
 		expect(out).toContain('call epic_plan_waves(directory, phase=3)');
 	});
 
@@ -168,7 +170,7 @@ describe('formatWavePlanSurfaceBlock', () => {
 		expect(out).toContain('Wave 1: 3.1, 3.2  (a.py, b.py)');
 		expect(out).toContain('Wave 2: 3.3  (c.py)');
 		expect(out).toContain('Serialized: none. Degraded: none.');
-		expect(out).toContain('Tell the user this breakdown');
+		expect(out).toContain('Walk the user through this breakdown');
 		expect(out).toContain(
 			'dispatch wave 1 as 2 parallel Task calls (3.1, 3.2) in one message',
 		);

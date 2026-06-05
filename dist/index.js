@@ -109310,13 +109310,13 @@ function formatWavePlanSurfaceBlock(result, phase) {
   const degradedIds = degraded.map((d) => d.taskId).join(", ") || "none";
   const serializedIds = serialized.join(", ") || "none";
   const firstWave = waves[0];
-  const nextStep = firstWave ? firstWave.taskIds.length > 1 ? `then dispatch wave 1 as ${firstWave.taskIds.length} parallel Task calls (${firstWave.taskIds.join(", ")}) in one message.` : `then dispatch wave 1 as one Task call (${firstWave.taskIds[0]}).` : serialized.length > 0 || degraded.length > 0 ? "then dispatch the serialized/degraded tasks one at a time." : "then call phase_complete — nothing to dispatch.";
+  const nextStep = firstWave ? firstWave.taskIds.length > 1 ? `dispatch wave 1 as ${firstWave.taskIds.length} parallel Task calls (${firstWave.taskIds.join(", ")}) in one message.` : `dispatch wave 1 as one Task call (${firstWave.taskIds[0]}).` : serialized.length > 0 || degraded.length > 0 ? "dispatch the serialized/degraded tasks one at a time." : "call phase_complete — nothing to dispatch.";
   return [
     `Wave plan for phase ${phase} — ${waves.length} wave${waves.length === 1 ? "" : "s"}:`,
     ...waveLines,
     `Serialized: ${serializedIds}. Degraded: ${degradedIds}.`,
     "",
-    `Tell the user this breakdown in your own words, ${nextStep}`,
+    `Walk the user through this breakdown in your own words — name which tasks are in which wave, what runs in parallel, and anything serialized/degraded — using the computed numbers above (not a guess). Then ${nextStep}`,
     ""
   ].join(`
 `);
@@ -110554,12 +110554,12 @@ async function formatVerdictSurfaceBlock(result, directory, phase) {
       depsLine = depPairs.length > 0 ? `Dependencies: ${depPairs.join("; ")}` : "Dependencies: (none — every task has no upstream)";
     }
   } catch {}
-  const nextStep = v.decision === "promote" ? `then call epic_plan_waves(directory, phase=${phase}).` : "then fall back to per-task serial dispatch.";
+  const nextStep = v.decision === "promote" ? `call epic_plan_waves(directory, phase=${phase}).` : "fall back to per-task serial dispatch.";
   return [
     `Verdict for phase ${phase}: ${decision} (p=${p} — ${reason}).`,
     depsLine,
     "",
-    `Tell the user the decision and what it means in your own words, ${nextStep}`,
+    `Tell the user — in your own words, but include ALL of these — the decision (${decision}), the score p=${p}, and the dependency chain above. Then ${nextStep}`,
     ""
   ].join(`
 `);

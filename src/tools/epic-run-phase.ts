@@ -723,8 +723,8 @@ export async function formatVerdictSurfaceBlock(
 
 	const nextStep =
 		v.decision === 'promote'
-			? `then call epic_plan_waves(directory, phase=${phase}).`
-			: 'then fall back to per-task serial dispatch.';
+			? `call epic_plan_waves(directory, phase=${phase}).`
+			: 'fall back to per-task serial dispatch.';
 
 	// Lighter-touch surface (2026-06-05): hand the architect the facts and a
 	// plain nudge to share them, instead of a STOP/COPY-VERBATIM compliance
@@ -736,7 +736,7 @@ export async function formatVerdictSurfaceBlock(
 		`Verdict for phase ${phase}: ${decision} (p=${p} — ${reason}).`,
 		depsLine,
 		'',
-		`Tell the user the decision and what it means in your own words, ${nextStep}`,
+		`Tell the user — in your own words, but include ALL of these — the decision (${decision}), the score p=${p}, and the dependency chain above. Then ${nextStep}`,
 		'',
 	].join('\n');
 }
