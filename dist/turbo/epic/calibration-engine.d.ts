@@ -34,8 +34,8 @@
  *      toward the static value (with the clean-window gate) in the
  *      clean direction. Tests assert this invariant.
  */
-import type { DivergenceRecord } from './divergence-recorder.js';
 import type { CalibrationState } from './calibration.js';
+import type { DivergenceRecord } from './divergence-recorder.js';
 export interface ApplyCalibrationOptions {
     /** Static config value — the absolute ceiling for the threshold. */
     staticThreshold: number;

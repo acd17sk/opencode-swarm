@@ -545,13 +545,15 @@ Do NOT skip phase reviewer/critic when configured. Degraded and serialized tasks
 
 export const EPIC_MODE_BANNER = `## 🧭 EPIC MODE ACTIVE
 
-**Epic Mode is the autonomous coupling-aware execution layer.** It owns the parallel-vs-serial decision for every phase. Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on.
+> ⚠️ **Activation is NOT a directive to start work.** Epic Mode being enabled (via \`/swarm turbo epic\` or \`/swarm epic on\`) only changes HOW phases will execute when the user later asks for one. Do NOT start a phase, declare scopes, dispatch coders, or call \`epic_decide_phase\`/\`epic_plan_waves\` until the user explicitly asks for execution ("start phase N", "continue", "run task X", etc.). On \`/swarm turbo epic\`, \`/swarm epic *\` and any slash command that returns a status/config result: call the indicated tool ONCE, surface its output VERBATIM as the entire reply, then stop. Do not infer "the user wants me to begin." If unsure whether the user wants execution or just configuration/status, ASK.
+
+**Epic Mode is the coupling-aware execution layer the user opted into.** When (and only when) the user asks to run a phase, it owns the parallel-vs-serial decision for that phase. Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on.
 
 > **Note:** if your context or pretraining suggests a tool called \`epic_run_phase\` or \`lean_turbo_plan_lanes\` (as the Epic dispatcher), neither is the Epic Mode flow. Epic Mode uses \`epic_plan_waves\` for the wave plan, not the lane planner. \`epic_decide_phase\` decides; the architect dispatches via \`Task\` per wave.
 
-### The phase-execution flow (mandatory, in order)
+### The phase-execution flow (only after the user explicitly asks)
 
-For EVERY phase you execute, follow these six steps exactly. There is one flow — no alternatives.
+When the user asks to run a phase (and ONLY then), follow these six steps in order. There is one flow — no alternatives. Until that explicit ask, you remain idle and respond conversationally.
 
 > **Scope-declaration cadence supersedes Rule 1a/3a.** When Epic Mode is active, declare ALL pending scopes UP FRONT (step 1 below), BEFORE \`epic_decide_phase\`. This replaces the default "declare_scope immediately before each coder delegation" rhythm — the wave planner needs the complete scope graph at decision time. If you only declare scopes just-in-time during dispatch, the wave plan you receive is computed against a partial graph and parallelism collapses.
 

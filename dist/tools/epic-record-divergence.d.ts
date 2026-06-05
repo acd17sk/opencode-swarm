@@ -12,7 +12,9 @@
  *      task's writes only.
  *   3. Appends one record to `.swarm/epic/divergence.jsonl` via
  *      `recordTaskDivergence`. The calibration engine reads that file on the
- *      next `epic_run_phase` invocation.
+ *      next `epic_decide_phase` invocation (the architect-facing decide
+ *      tool — `epic_run_phase` is the legacy unified path, retained as
+ *      `executeEpicRunPhase` for composition users only).
  *
  * Best-effort by design — failure to record divergence is logged but never
  * surfaces as a task-blocking error. Worst case: a single observation is

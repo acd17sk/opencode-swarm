@@ -349,7 +349,7 @@ export declare const TOOL_METADATA: {
     };
     lean_turbo_run_phase: {
         description: string;
-        agents: "architect"[];
+        agents: never[];
     };
     lean_turbo_status: {
         description: string;
@@ -358,6 +358,18 @@ export declare const TOOL_METADATA: {
     apply_patch: {
         description: string;
         agents: "coder"[];
+    };
+    epic_decide_phase: {
+        description: string;
+        agents: "architect"[];
+    };
+    epic_plan_waves: {
+        description: string;
+        agents: "architect"[];
+    };
+    epic_record_divergence: {
+        description: string;
+        agents: "architect"[];
     };
 };
 /** Union type of all valid tool names (the metadata keys). */

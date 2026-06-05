@@ -107,4 +107,7 @@ export declare const TOOL_MANIFEST: {
     lean_turbo_run_phase: () => ToolDefinition;
     lean_turbo_status: () => ToolDefinition;
     apply_patch: () => ToolDefinition;
+    epic_decide_phase: () => ToolDefinition;
+    epic_plan_waves: () => ToolDefinition;
+    epic_record_divergence: () => ToolDefinition;
 };

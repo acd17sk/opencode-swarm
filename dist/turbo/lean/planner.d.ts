@@ -48,27 +48,10 @@
  * before conflict detection. This ensures consistent behavior across platforms.
  */
 import type { LeanTurboConfig } from '../../config/schema';
+import { type PlanPhase } from './partition-common';
 import type { LeanTurboCounters, LeanTurboDegradedTask, LeanTurboLane } from './state';
 export { GLOBAL_FILES_LIST, isGlobalFile, isPathSafe, isProtectedPath, normalizePath, PROTECTED_PATTERNS_LIST, pathsConflict, readTaskScopes, } from './conflicts';
-/**
- * A single task within a plan phase.
- * Matches the structure stored in .swarm/plan.json.
- */
-export interface PlanTask {
-    id: string;
-    description: string;
-    status: 'pending' | 'in_progress' | 'completed' | 'blocked';
-    depends?: string[];
-    files_touched?: string[];
-}
-/**
- * A phase within a plan, containing multiple tasks.
- */
-export interface PlanPhase {
-    id: number;
-    name: string;
-    tasks: PlanTask[];
-}
+export type { PlanPhase, PlanTask } from './partition-common';
 /**
  * The complete lane plan produced by `planLeanTurboLanes`.
  * Describes how phase tasks are partitioned into parallel lanes.

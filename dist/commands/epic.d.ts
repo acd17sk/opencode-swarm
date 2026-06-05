@@ -13,12 +13,13 @@
  *
  * Toggling only mutates session state (and the durable
  * `.swarm/epic-state.json`); it does not start or stop any execution. The
- * `epic_run_phase` tool is the architect-facing entry that gates execution.
+ * `epic_decide_phase` + `epic_plan_waves` tools (plus per-wave Task dispatch
+ * by the architect) are the architect-facing entries that gate execution.
  */
 import { loadPluginConfigWithMeta } from '../config/index.js';
 import { isGitRepo } from '../git/branch.js';
 import { loadPlanJsonOnly } from '../plan/manager.js';
-import { getAgentSession } from '../state.js';
+import { ensureAgentSession } from '../state.js';
 import { decideEpicActivation } from '../turbo/epic/activation.js';
 import { isCalibrationStateUnreadable, loadCalibrationState } from '../turbo/epic/calibration.js';
 import { getCoChangeData } from '../turbo/epic/cochange-source.js';
@@ -35,7 +36,7 @@ export declare const _internals: {
     loadPlanJsonOnly: typeof loadPlanJsonOnly;
     getCoChangeData: typeof getCoChangeData;
     decideEpicActivation: typeof decideEpicActivation;
-    getAgentSession: typeof getAgentSession;
+    ensureAgentSession: typeof ensureAgentSession;
     isEpicModeActive: typeof isEpicModeActive;
     isStateUnreadable: typeof isStateUnreadable;
     loadEpicSessionState: typeof loadEpicSessionState;

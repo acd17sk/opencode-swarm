@@ -68,6 +68,7 @@ export type { ClassifiedFailure, FailureClassification, FailureCluster, } from '
 export { classifyAndCluster, classifyFailure, clusterFailures, } from '../test-impact/failure-classifier.js';
 export type { FlakyTestEntry } from '../test-impact/flaky-detector.js';
 export { computeFlakyScore, detectFlakyTests, isTestQuarantined, } from '../test-impact/flaky-detector.js';
+export { epic_plan_waves } from './epic-plan-waves';
 export { epic_record_divergence } from './epic-record-divergence';
 export { epic_decide_phase } from './epic-run-phase';
 export { generate_mutants } from './generate-mutants';

@@ -64,9 +64,8 @@ export interface EpicRunPhaseResult {
      *  - `'phase-already-complete'` — every task in the requested phase
      *    is already `status: 'completed'`. Phase 15 (B35): without this,
      *    re-running an already-completed phase silently produced a
-     *    vacuous-pass `promote` verdict; the architect then called
-     *    `lean_turbo_plan_lanes` and got an empty plan with no
-     *    diagnostic.
+     *    vacuous-pass `promote` verdict; the architect then called the
+     *    wave planner and got an empty plan with no diagnostic.
      *  - `'phase-empty'` — the requested phase exists but its `tasks`
      *    array is empty (architect created a phase header but never
      *    populated it, or a council edit removed every task). Phase 17
@@ -123,8 +122,8 @@ export declare const _internals: {
  * This is the shared helper between:
  *  - `epic_run_phase`: legacy unified tool (decide + dispatch in one call) —
  *    calls this then continues with dispatch when verdict is promote.
- *  - `epic_decide_phase`: transparent path (decide only — architect then
- *    dispatches lanes via Task for visibility).
+ *  - `epic_decide_phase`: transparent flow (decide only — architect then
+ *    calls `epic_plan_waves` and dispatches each wave via Task for visibility).
  *
  * Returns the same EpicRunPhaseResult shape with:
  *  - reason: 'decided'  → verdict is promote, caller may dispatch.
@@ -151,29 +150,30 @@ export declare function executeEpicDecidePhase(args: EpicRunPhaseArgs): Promise<
 export declare function executeEpicRunPhase(args: EpicRunPhaseArgs): Promise<EpicRunPhaseResult>;
 /**
  * NOTE: `epic_run_phase` is intentionally NOT exposed as a tool to the
- * architect. The transparent decide-then-dispatch path (epic_decide_phase
- * + lean_turbo_plan_lanes + Task dispatch) is the ONLY supported flow,
- * because it gives the user real-time visibility into the parallel coder
- * agents. The legacy unified-path function `executeEpicRunPhase` remains
+ * architect. The transparent decide-then-dispatch wave flow (`epic_decide_phase`
+ * → `epic_plan_waves` → Task dispatch per wave) is the ONLY supported flow,
+ * because it gives the user real-time visibility into each concurrent coder
+ * agent. The legacy unified-path function `executeEpicRunPhase` remains
  * exported for tests and any composition users, but no ToolDefinition
  * wraps it — so the architect cannot call it and accidentally fall back
- * to the opaque path. This is a deliberate product decision: one path,
+ * to the opaque path. This is a deliberate product decision: one flow,
  * unambiguous, always-visible.
  */
 /**
  * Transparent decide-only tool. Returns the verdict (promote/demote/error)
- * without dispatching Lean Turbo. The architect should:
+ * without dispatching coders. The architect should:
  *  1. Call this after declaring scopes for all pending tasks.
  *  2. Surface the verdict to the user.
- *  3. If verdict is `promote`, call `lean_turbo_plan_lanes` to get the lane
- *     plan, then dispatch each lane via the `Task` tool (one Task call per
- *     lane, all in one message for parallel execution). Each Task is a
- *     visible subagent the user can click into for live progress.
+ *  3. If verdict is `promote`, call `epic_plan_waves` to get the wave plan,
+ *     then for each wave dispatch one `Task` per `taskId` in that wave —
+ *     ALL in one assistant message so the wave runs concurrently. Wait for
+ *     the wave to complete, then advance. Each Task is a visible subagent
+ *     the user can click into for live progress.
  *  4. After each task completes (via `update_task_status`), call
  *     `epic_record_divergence` to feed the calibration loop.
  *
- * This is the CLI-visibility path. The legacy `epic_run_phase` bundles
+ * This is the CLI-visibility flow. The legacy `epic_run_phase` bundles
  * decide + dispatch into one opaque tool call where the user can't see
- * the parallel coder agents Lean Turbo spawns.
+ * the concurrent coder agents.
  */
 export declare const epic_decide_phase: ToolDefinition;
