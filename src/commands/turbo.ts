@@ -1,6 +1,10 @@
 import { loadPluginConfigWithMeta } from '../config';
-import { ensureAgentSession } from '../state';
-import { disableEpicMode, enableEpicMode } from '../turbo/epic/state';
+import { getAgentSession } from '../state';
+import {
+	disableEpicMode,
+	enableEpicMode,
+	isEpicModeActive,
+} from '../turbo/epic/state';
 import {
 	emptyRunState,
 	isStateUnreadable,
@@ -42,11 +46,11 @@ export async function handleTurboCommand(
 		return 'Error: No active session context. Turbo Mode requires an active session. Use /swarm turbo from within an OpenCode session, or start a session first.';
 	}
 
-	// Bootstrap the agent session if needed. `/swarm turbo` is a session-
-	// state command — there's no good reason to make the user warm up the
-	// architect before they can configure how it runs. `ensureAgentSession`
-	// creates the session on first use and is idempotent on subsequent calls.
-	const session = ensureAgentSession(sessionID, undefined, directory);
+	// Validate session exists
+	const session = getAgentSession(sessionID);
+	if (!session) {
+		return 'Error: No active session. Turbo Mode requires an active session to operate.';
+	}
 
 	// Parse arguments
 	const arg0 = args[0]?.toLowerCase();
@@ -262,7 +266,7 @@ export async function handleTurboCommand(
  * Creates durable run state before flipping session flags (fail-closed pattern).
  */
 function enableLeanTurbo(
-	session: ReturnType<typeof ensureAgentSession>,
+	session: NonNullable<ReturnType<typeof getAgentSession>>,
 	directory: string,
 	sessionID: string,
 ): string {
@@ -323,7 +327,7 @@ function enableLeanTurbo(
  * Builds the status message for turbo mode.
  */
 function buildStatusMessage(
-	session: ReturnType<typeof ensureAgentSession>,
+	session: NonNullable<ReturnType<typeof getAgentSession>>,
 	directory: string,
 	sessionID: string,
 ): string {
