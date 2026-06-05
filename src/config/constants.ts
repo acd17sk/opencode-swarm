@@ -545,107 +545,70 @@ Do NOT skip phase reviewer/critic when configured. Degraded and serialized tasks
 
 export const EPIC_MODE_BANNER = `## 🧭 EPIC MODE ACTIVE
 
-> ⚠️ **Activation is NOT a directive to start work.** Epic Mode being enabled (via \`/swarm turbo epic\` or \`/swarm epic on\`) only changes HOW phases will execute when the user later asks for one. Do NOT start a phase, declare scopes, dispatch coders, or call \`epic_decide_phase\`/\`epic_plan_waves\` until the user explicitly asks for execution ("start phase N", "continue", "run task X", etc.). On \`/swarm turbo epic\`, \`/swarm epic *\` and any slash command that returns a status/config result: call the indicated tool ONCE, surface its output VERBATIM as the entire reply, then stop. Do not infer "the user wants me to begin." If unsure whether the user wants execution or just configuration/status, ASK.
+**Activation ≠ start.** Until the user asks for execution ("start phase N", "run task X", "continue"): do nothing. On \`/swarm turbo epic\`, \`/swarm epic *\` and any slash status/config command: call the named tool ONCE, surface its output VERBATIM, then stop. Don't infer intent — if unsure, ASK.
 
-**Epic Mode is the coupling-aware execution layer the user opted into.** When (and only when) the user asks to run a phase, it owns the parallel-vs-serial decision for that phase. Do NOT call \`lean_turbo_run_phase\` directly while Epic Mode is on.
+Use \`epic_plan_waves\` (NOT \`lean_turbo_plan_lanes\` or the deprecated \`epic_run_phase\`) for the wave plan. Do NOT call \`lean_turbo_run_phase\` directly.
 
-> **Note:** if your context or pretraining suggests a tool called \`epic_run_phase\` or \`lean_turbo_plan_lanes\` (as the Epic dispatcher), neither is the Epic Mode flow. Epic Mode uses \`epic_plan_waves\` for the wave plan, not the lane planner. \`epic_decide_phase\` decides; the architect dispatches via \`Task\` per wave.
+### Six-step flow (only when the user asks to run a phase)
 
-### The phase-execution flow (only after the user explicitly asks)
+> Supersedes Rule 1a/3a: declare ALL pending scopes UP FRONT (step 1), BEFORE step 2. Just-in-time declaration breaks the wave planner.
 
-When the user asks to run a phase (and ONLY then), follow these six steps in order. There is one flow — no alternatives. Until that explicit ask, you remain idle and respond conversationally.
+**1. \`declare_scope\` for every pending task** — one call per single \`taskId\` string (NOT ranges/arrays/globs). Tight, disjoint scopes; avoid shared files (\`__init__.py\`, barrels, registries) — they force serial waves. Declared scope is a CONTRACT; if a task needs more files mid-run, re-declare BEFORE dispatching.
 
-> **Scope-declaration cadence supersedes Rule 1a/3a.** When Epic Mode is active, declare ALL pending scopes UP FRONT (step 1 below), BEFORE \`epic_decide_phase\`. This replaces the default "declare_scope immediately before each coder delegation" rhythm — the wave planner needs the complete scope graph at decision time. If you only declare scopes just-in-time during dispatch, the wave plan you receive is computed against a partial graph and parallelism collapses.
+**2. \`epic_decide_phase(directory, phase=N, sessionID)\`** — returns:
+- \`decided\`+\`promote\` → step 3
+- \`demoted\` → step 6 (per-task serial)
+- \`scopes-missing\` → \`declare_scope\` each \`missingScopes[]\`, retry step 2
+- \`no-phase\` | \`phase-empty\` | \`phase-already-complete\` | \`epic-state-unreadable\` → fix per response \`message\`, retry. \`phase-already-complete\` means call step 2 with \`phase=N+1\` (NOT step 4 directly).
+- other → fix per \`message\`, retry
 
-**1. Declare scope for every pending task in the phase.**
+**3. ⚠️ MANDATORY SURFACE — your very next assistant message, BEFORE any tool call, MUST contain exactly:**
+> Epic Mode: <PROMOTE|DEMOTE> (p=<0.XXX>) — <rationale OR verdict.blockingReasons[0]>
+> Dependencies: <task_id> ← <deps>; <task_id> ← <deps>; ... (omit empty)
 
-> ⚠️ **\`taskId\` MUST be a single id string.** Do NOT pass \`"2.3-2.6"\`, \`"2.3,2.4"\`, arrays, globs, or any range/list syntax — \`declare_scope\` rejects them. Issue ONE \`declare_scope\` call per pending task id.
+NO commentary, NO reads, NO other tool calls before these two lines. Step 4 is forbidden until both lines are emitted. Skipping = banner violation; user loses all visibility.
 
-For each pending task in phase N, call \`declare_scope(taskId="<single id>", files=[...])\` with the exact file paths it will touch. The wave planner reads these scopes to compute concurrent groups; without them it has no graph and falls back to serial. Declare ALL scopes BEFORE step 2 — declaring task-by-task during execution is too late.
+**4. \`epic_plan_waves(directory, phase=N)\`** — returns \`{ waves: [{ waveId, taskIds, files }], serializedTasks, degradedTasks, degradationSummary }\`. Failure reasons mirror step 2; additionally: \`git-failed\` (retry), \`planner-error\` (check \`errors[0]\`).
 
-Keep scopes tight. If two sibling tasks both claim a shared file (\`__init__.py\`, a registry, a barrel export), the wave planner will split them into separate waves and parallelism dies. Prefer architecture that avoids the shared touch (decorator-based self-registration, separate files) over wider scope claims.
+**4b. ⚠️ MANDATORY SURFACE — BEFORE any \`Task\` call, emit:**
+> Wave plan (<N> waves):
+> - Wave 1: [<ids>] — <files>
+> - ...
+> Serialized: [<ids>]  Degraded: [<ids>]
 
-Declared scope is a contract, not advisory: a coder that writes outside its declared files breaks the disjointness assumption the wave planner used for safety. If you discover a task needs more files than declared, \`declare_scope\` AGAIN with the corrected set BEFORE dispatching that task; do not let the coder bash-write past the boundary.
+If \`waves.length\` exceeds the distinct-dependency-layer count, ALSO emit a one-line diagnosis (typical cause: shared file in multiple scopes). Example:
+> ⚠ Wave 3 split into 4 single-task waves because every scope claims \`models/__init__.py\`. Restore parallelism by re-declaring 2.3-2.6 without \`__init__.py\` (use decorator self-registration), then re-call epic_plan_waves.
 
-**2. Compute the Epic Mode verdict.**
-Call \`epic_decide_phase(directory, phase=N, sessionID)\`. This runs preflight + calibration + p computation + the three gates (p-threshold, hot-module, greenfield), persists the verdict to \`.swarm/evidence/epic-promotions.jsonl\`, and returns one of:
-- \`reason: "decided"\` with \`verdict.decision === "promote"\` → continue to step 3
-- \`reason: "demoted"\` → skip to step 6 (per-task serial fallback)
-- \`reason: "scopes-missing"\` → the response includes a \`missingScopes\` array. Call \`declare_scope\` for each missing id, then re-invoke step 2. Do NOT interpret this as "Epic decided to serialize" — Epic never ran the decision; the preflight blocked it.
-- \`reason: "no-phase"\` → the requested phase number isn't in \`plan.json\`. Check the available phases listed in the response's \`message\` field and re-invoke step 2 with a valid phase. Do NOT proceed past step 2.
-- \`reason: "phase-already-complete"\` → every task in this phase is already marked \`completed\`. The phase is done; advance to the next phase (call step 2 again with phase=N+1). If you intended to re-run tasks, first set their status back to \`pending\` via \`update_task_status\`.
-- \`reason: "phase-empty"\` → the requested phase exists in \`plan.json\` but has zero tasks defined (a phase header was created but never populated). Either add tasks to this phase (with declared scopes, depends, and acceptance criteria) and re-invoke step 2, or remove the empty phase from \`plan.json\` and decide on the next valid phase. Do NOT proceed past step 2.
-- \`reason: "epic-state-unreadable"\` → \`.swarm/epic-state.json\` is corrupt. The state file must be repaired (delete it to reseed, or fix the JSON syntax) before Epic Mode can decide.
-- any other error reason → fix per the structured \`message\` and retry.
+Skipping = banner violation.
 
-**3. MANDATORY — Surface the verdict to the user IMMEDIATELY after \`epic_decide_phase\` returns, BEFORE any further tool call.**
+\`serializedTasks\` causes (NOT \`declare_scope\`-fixable): cycle, \`no-scope\`, \`invalid-scope\`, cap-exhaustion. Fix dep graph or scope contents, re-plan.
 
-Your very next assistant message MUST contain exactly this line (substituting real values):
-> Epic Mode: <PROMOTE|DEMOTE> (p=<0.XXX>) — <one-sentence rationale OR top blocking reason from verdict.blockingReasons[0]>
+\`degradedTasks[].reason\` keys:
+- \`global file conflict\` / \`protected path\` → balanced mode, dispatch per-task after waves
+- \`cross-batch upstream not committed (greenfield-smart Rule 3): <ids>\` → commit named upstreams, re-plan
+- \`unresolved in-batch dependency: <ids>\` → fix upstream degrade/serialize, re-plan
+- \`planning leftover (no identifiable blocker)\` → surface as planner bug
 
-Then a second line summarising the dependency graph for the phase's pending tasks:
-> Dependencies: <task_id> ← <comma-separated deps>; <task_id> ← <deps>; ... (omit tasks with no deps)
+**5. Dispatch each wave: \`wave.taskIds.length\` SEPARATE \`Task\` calls in ONE assistant message.** Per wave in order:
+- One \`Task(subagent_type="coder", description="Phase N task <id>", prompt="<scope + acceptance>")\` per \`taskId\`
+- ALL in same turn → concurrent
+- Wait for all in wave to reach \`update_task_status(completed)\` + \`epic_record_divergence\` before next wave
 
-NO inline commentary, NO file reads, NO additional tool calls before these two lines. Step 4 is allowed only AFTER both lines have been emitted in chat. Skipping this step is a banner violation — the user has zero visibility into Epic Mode's reasoning without it.
+⚠️ **Three defects:**
+1. **Bundling**: multiple ids in one Task call → kills 1:1 coder visibility
+2. **Splitting across messages**: serial execution, no parallelism
+3. **Skipping single-task waves**: still emit ONE Task, wait for completion+divergence
 
-**4. Get the wave plan AND surface it.**
-Call \`epic_plan_waves(directory, phase=N)\`. Returns \`{ waves: [{ waveId, taskIds, files }, ...], serializedTasks, degradedTasks, degradationSummary }\` — the wave planner partitions tasks into ordered concurrent groups. Each wave contains tasks whose dependencies are satisfied by completed waves AND whose declared scopes are mutually disjoint.
+This is the only sanctioned dispatch path. Don't use \`lean_turbo_run_phase\`; don't bundle through other tools — visibility requires \`Task\`.
 
-**MANDATORY — Surface the wave plan to the user IMMEDIATELY, BEFORE dispatching any Task.** Your assistant message right after the \`epic_plan_waves\` call MUST contain a wave breakdown like:
-> Wave plan (3 waves, 6 tasks concurrent):
-> - Wave 1: [2.1] — protocol.py, registry.py
-> - Wave 2: [2.2] — column_types.py
-> - Wave 3: [2.3, 2.4, 2.5, 2.6] — logistic.py, random_forest.py, xgboost.py, mlp.py
-> Serialized: [] Degraded: []
+\`serializedTasks\` + \`degradedTasks\` (after wave loop): ONE Task per assistant message each, never batched, wait for completion+divergence between.
 
-If \`waves.length\` is greater than the number of distinct dependency layers in the pending set, ALSO surface a one-line diagnosis of what split parallelism (typically: shared file in multiple scopes). Example:
-> ⚠ Wave 3 expected to contain [2.3, 2.4, 2.5, 2.6] concurrent but planner split into 4 single-task waves because every scope claims \`models/__init__.py\`. To restore parallelism: re-declare 2.3-2.6 without \`__init__.py\` (use decorator-based self-registration in each model file), then re-call epic_plan_waves.
+**6. After each \`update_task_status(completed)\`, call \`epic_record_divergence(directory, taskId, sessionID)\`** (feeds calibration). If \`summary.isClean: false\`:
+> Divergence: task \`<id>\` wrote <undeclaredCount> undeclared file(s) (ratio <ratio>)
 
-This surface is the user's only visibility into wave-planner decisions. Skipping it is a banner violation.
+### Phase-complete + audit
 
-Failure-mode taxonomy — these are NOT the same and require different responses:
-- \`reason: "scopes-missing"\` (returned from step 2 OR step 4) → architect forgot to declare; loop back to step 1 and \`declare_scope\` for each id in \`missingScopes\`.
-- \`serializedTasks: [...]\` in a successful plan → tasks that could not join any wave because of a dependency cycle, classification as \`no-scope\` (the scope file was empty after preflight passed — typically corrupted), or \`invalid-scope\` (path validation rejected every declared file). NOT remediable by \`declare_scope\` alone; you must fix the dependency graph or the scope contents and re-plan. The cap-exhaustion fallback (max_parallel_coders=0) also surfaces here.
-- \`degradedTasks: [...]\` in a successful plan → tasks excluded from the parallel waves but still dispatchable per-task. The \`reason\` field is one of:
-  - \`global file conflict\` — touches a global file (\`package.json\`, lockfiles, root barrel exports). Dispatch in balanced mode after the wave loop.
-  - \`protected path\` — touches a security-sensitive area (auth, secrets, security/). Dispatch in balanced mode after the wave loop.
-  - \`cross-batch upstream not committed (greenfield-smart Rule 3): <ids>\` — a \`depends:\` upstream from a prior phase is NOT in git history. Resolution: verify Epic Mode commit-on-completion is succeeding for those upstreams, or commit them manually, then re-plan.
-  - \`unresolved in-batch dependency: <ids>\` — a \`depends:\` upstream IS in this phase's task set but degraded/serialized (so it won't run in a wave). Resolution: fix the upstream's degrade/serialize cause first, then re-plan.
-  - \`planning leftover (no identifiable blocker)\` — the planner could not place the task and could not identify a blocking dep. Should not happen in practice; surface to the user as a possible planner bug.
-- Other failure reasons (\`no-plan\`, \`no-phase\`, \`phase-empty\`, \`phase-already-complete\`, \`git-failed\`, \`planner-error\`) → apply the same remediation as step 2 (specifically: \`phase-already-complete\` means go back to step 2 with \`epic_decide_phase(phase=N+1)\` — do NOT call \`epic_plan_waves(phase=N+1)\` directly; the new phase needs to be gated and logged).
+Phase reviewer + critic still required at \`phase_complete\` (Epic Mode doesn't change Stage B).
 
-**5. Dispatch each wave: emit one separate \`Task\` tool call per \`taskId\`, ALL in the same assistant message.**
-
-For each \`wave\` in \`plan.waves\` (in order):
-  a. Emit exactly \`wave.taskIds.length\` separate \`Task\` tool calls — one per \`taskId\`. \`Task(subagent_type="coder", description="Phase N task <taskId>", prompt="<prompt with the task's scope + acceptance criteria>")\`.
-  b. ALL of that wave's \`Task\` calls go in ONE assistant message (single response turn). Opencode runs them concurrently; each appears as a visible subagent the user can click into to watch thinking + tool calls + progress live.
-  c. Wait until every task in the wave has reached \`update_task_status(completed)\` AND had its \`epic_record_divergence\` call (step 6) issued before emitting any \`Task\` call for wave N+1. \`Task\` returning is necessary but not sufficient — the wave is "done" only after the per-task completion + divergence calls land.
-
-> ⚠️ **Three defects to avoid:**
->  1. **Bundling**: passing multiple ids into one \`Task\` call (e.g. \`description="tasks 2.3-2.6"\` with one combined prompt). A 4-task wave needs 4 \`Task\` tool calls, period. The coder subagents must be 1:1 with \`taskIds\`.
->  2. **Splitting across messages**: emitting wave-N's Task calls across multiple assistant turns. Opencode then runs them serially and Epic Mode's parallelism is silently lost.
->  3. **Skipping single-task waves**: a wave with \`taskIds.length === 1\` is still a wave. Emit ONE \`Task\` call in its own assistant message and wait for the completion + divergence sequence. Do NOT collapse it into inline work or skip the visibility step.
-
-**This is the only way to dispatch promoted phases.** Do not invoke \`lean_turbo_run_phase\` and do not bundle the dispatch into another tool — visibility requires Task.
-
-For tasks in \`serializedTasks\` and \`degradedTasks\`: dispatch each one in ONE \`Task\` call per assistant message AFTER the wave loop completes — never batch them. Wait for completion + divergence between each. Apply the reason field as scope guidance (e.g. degraded → balanced mode; serialized → no parallel siblings).
-
-**6. After EACH task transitions to \`completed\` (via \`update_task_status\`), call \`epic_record_divergence(directory, taskId, sessionID)\`.**
-This feeds the calibration loop (Capability D) — it compares the task's declared scope against the files the coder actually wrote. The next phase's \`epic_decide_phase\` will read these records and auto-tighten the activation threshold + grow the hot-module list if divergence was observed. Best-effort: never blocks; missing it just costs one observation.
-
-If \`epic_record_divergence\` returns \`summary.isClean: false\`, immediately surface to the user:
-> Divergence: task \`<taskId>\` wrote \`<undeclaredCount>\` undeclared file(s) (ratio \`<divergenceRatio>\`)
-
-Clean tasks (\`isClean: true\`) don't need a surface — that's the expected baseline.
-
-### Phase-complete gate
-
-Phase reviewer + critic are still required at \`phase_complete\`. Epic Mode does not change Stage B requirements — it only chooses whether to parallelize.
-
-### Audit & visibility (always-on pulls — no architect mediation needed)
-
-- \`/swarm epic status\` — session's most recent decision.
-- \`/swarm epic last\` — most recent decision from the durable evidence log.
-- \`/swarm epic decide\` — preview the verdict without dispatching.
-- \`/swarm epic calibration\` — current calibration state: learned threshold, hot-module additions, consecutive-clean counter, recent divergent tasks.
+Audit (no architect needed): \`/swarm epic status | last | decide | calibration\`.
 `;

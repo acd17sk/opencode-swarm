@@ -31,17 +31,19 @@ afterEach(() => {
 
 describe('EPIC_MODE_BANNER content', () => {
 	test('describes the SINGLE sanctioned phase-execution flow', () => {
-		// The banner now describes ONE flow:
+		// The banner describes ONE flow:
 		//   declare_scope → epic_decide_phase → epic_plan_waves
 		//     → Task dispatch (per wave) → epic_record_divergence
 		// All five tool names appear; the opaque alternatives are
-		// explicitly forbidden.
+		// explicitly forbidden. 2026-06-05 compression: text was condensed
+		// to fit the 4000-token injection budget — assert semantic anchors,
+		// not verbatim prose.
 		expect(EPIC_MODE_BANNER).toContain('declare_scope');
 		expect(EPIC_MODE_BANNER).toContain('epic_decide_phase');
 		expect(EPIC_MODE_BANNER).toContain('epic_plan_waves');
 		expect(EPIC_MODE_BANNER).toContain('Task');
 		expect(EPIC_MODE_BANNER).toContain('epic_record_divergence');
-		expect(EPIC_MODE_BANNER).toContain('There is one flow');
+		expect(EPIC_MODE_BANNER).toContain('Six-step flow');
 	});
 
 	test('forbids the opaque dispatch tools (lean_turbo_run_phase + epic_run_phase)', () => {
@@ -52,13 +54,12 @@ describe('EPIC_MODE_BANNER content', () => {
 		expect(EPIC_MODE_BANNER).toContain(
 			'Do NOT call `lean_turbo_run_phase` directly',
 		);
-		expect(EPIC_MODE_BANNER).toContain('Do not invoke `lean_turbo_run_phase`');
+		expect(EPIC_MODE_BANNER).toContain("Don't use `lean_turbo_run_phase`");
 		// The architect's pretraining may include the deprecated
 		// `epic_run_phase` tool. The banner must explicitly anchor the
-		// model away from inventing a call to it (the Note paragraph at the
-		// top of the banner names it as not-the-Epic-flow).
+		// model away from inventing a call to it.
 		expect(EPIC_MODE_BANNER).toContain('epic_run_phase');
-		expect(EPIC_MODE_BANNER).toContain('neither is the Epic Mode flow');
+		expect(EPIC_MODE_BANNER).toContain('deprecated');
 	});
 
 	test('explains both promote and demote outcomes', () => {
@@ -73,25 +74,23 @@ describe('EPIC_MODE_BANNER content', () => {
 	test('mandates that the architect surface the verdict to the user', () => {
 		// Without this, weaker models (Kimi K2.6 observed) dispatched
 		// silently and the user had no signal Epic was doing anything.
-		// The stronger 2026-06-05 wording makes the surface MANDATORY and
-		// explicitly forbids any tool call between epic_decide_phase and
-		// the chat-surface step.
-		expect(EPIC_MODE_BANNER).toContain(
-			'MANDATORY — Surface the verdict to the user IMMEDIATELY',
-		);
+		// The 2026-06-05 mandatory-surface wording makes the verdict and
+		// wave-plan emit explicitly required.
+		expect(EPIC_MODE_BANNER).toContain('MANDATORY SURFACE');
 		expect(EPIC_MODE_BANNER).toContain('Epic Mode: <PROMOTE|DEMOTE>');
 		// And the wave plan must be surfaced after epic_plan_waves too —
 		// not just the verdict.
-		expect(EPIC_MODE_BANNER).toContain(
-			'MANDATORY — Surface the wave plan to the user IMMEDIATELY',
-		);
+		expect(EPIC_MODE_BANNER).toContain('Wave plan');
+		expect(EPIC_MODE_BANNER).toContain('BEFORE any');
 	});
 
-	test('lists all four /swarm epic visibility commands', () => {
+	test('lists the /swarm epic visibility commands', () => {
+		// After 2026-06-05 compression these are listed as a single
+		// pipe-joined line for token efficiency, not four separate lines.
 		expect(EPIC_MODE_BANNER).toContain('/swarm epic status');
-		expect(EPIC_MODE_BANNER).toContain('/swarm epic last');
-		expect(EPIC_MODE_BANNER).toContain('/swarm epic decide');
-		expect(EPIC_MODE_BANNER).toContain('/swarm epic calibration');
+		expect(EPIC_MODE_BANNER).toContain('last');
+		expect(EPIC_MODE_BANNER).toContain('decide');
+		expect(EPIC_MODE_BANNER).toContain('calibration');
 	});
 
 	test('mandates surfacing divergence when a task wrote outside its declared scope', () => {
@@ -103,36 +102,28 @@ describe('EPIC_MODE_BANNER content', () => {
 	});
 
 	test('mandates declaring scope upfront BEFORE the decision call', () => {
-		// Discovered live: without upfront scope declaration the lane
+		// Discovered live: without upfront scope declaration the wave
 		// planner has no graph and falls back to serial dispatch silently.
-		expect(EPIC_MODE_BANNER).toContain(
-			'Declare scope for every pending task in the phase',
-		);
-		expect(EPIC_MODE_BANNER).toContain('Declare ALL scopes BEFORE step 2');
-		// Must explicitly forbid the broken declare-as-you-go pattern.
-		expect(EPIC_MODE_BANNER).toContain(
-			'declaring task-by-task during execution is too late',
-		);
+		// After 2026-06-05 compression the rule is expressed compactly:
+		// "declare ALL pending scopes UP FRONT (step 1), BEFORE step 2."
+		expect(EPIC_MODE_BANNER).toContain('declare_scope');
+		expect(EPIC_MODE_BANNER).toContain('UP FRONT');
+		expect(EPIC_MODE_BANNER).toContain('BEFORE step 2');
+		// Supersedes Rule 1a/3a's declare-as-you-go cadence.
+		expect(EPIC_MODE_BANNER).toContain('Just-in-time declaration');
 	});
 
 	test('mandates Task dispatch (with all calls in ONE message per wave for parallel execution)', () => {
 		// The point of the architect-led dispatch is opencode-tracked
 		// subagents the user can click into for live visibility. Each wave
 		// is one assistant message containing wave.taskIds.length separate
-		// Task calls.
+		// Task calls. After 2026-06-05 compression these are stated as
+		// "SEPARATE Task calls in ONE assistant message".
 		expect(EPIC_MODE_BANNER).toContain(
-			'Dispatch each wave: emit one separate `Task` tool call per `taskId`',
+			'SEPARATE `Task` calls in ONE assistant message',
 		);
-		// Per-wave atomic-message rule must be explicit so the architect
-		// cannot split a wave across messages or bundle a wave into one
-		// Task call.
-		expect(EPIC_MODE_BANNER).toContain(
-			"ALL of that wave's `Task` calls go in ONE assistant message",
-		);
-		expect(EPIC_MODE_BANNER).toContain('visible subagent');
-		expect(EPIC_MODE_BANNER).toContain(
-			'the only way to dispatch promoted phases',
-		);
+		expect(EPIC_MODE_BANNER).toContain('subagent_type="coder"');
+		expect(EPIC_MODE_BANNER).toContain('only sanctioned dispatch path');
 		// Defects-to-avoid block must call out bundling and splitting
 		// explicitly (these were observed live failure modes).
 		expect(EPIC_MODE_BANNER).toContain('Bundling');
