@@ -721,25 +721,22 @@ export async function formatVerdictSurfaceBlock(
 		/* swallow — surface verdict regardless */
 	}
 
-	const followup =
+	const nextStep =
 		v.decision === 'promote'
-			? `AFTER surfacing, call epic_plan_waves(directory, phase=${phase}) next.`
-			: 'AFTER surfacing, fall back to per-task serial dispatch.';
+			? `then call epic_plan_waves(directory, phase=${phase}).`
+			: 'then fall back to per-task serial dispatch.';
 
+	// Lighter-touch surface (2026-06-05): hand the architect the facts and a
+	// plain nudge to share them, instead of a STOP/COPY-VERBATIM compliance
+	// block. The heavy version forced transparency but turned the architect
+	// robotic — it copied the verbatim lines and dropped all natural
+	// narration. Kimi K2.6 narrates well when not handed a template (proven
+	// by off-protocol turns), so we trust it to paraphrase these facts.
 	return [
-		'═══════════════════════════════════════════════════════════════',
-		'STOP. MANDATORY USER-FACING SURFACE — banner step 3.',
-		'Your next assistant message MUST begin with the two lines below,',
-		'between the ▶ markers, COPIED VERBATIM. Do NOT call any tool',
-		'until those lines have been emitted to the user.',
-		'═══════════════════════════════════════════════════════════════',
+		`Verdict for phase ${phase}: ${decision} (p=${p} — ${reason}).`,
+		depsLine,
 		'',
-		`▶ Epic Mode: ${decision} (p=${p}) — ${reason}`,
-		`▶ ${depsLine}`,
-		'',
-		'═══════════════════════════════════════════════════════════════',
-		followup,
-		'═══════════════════════════════════════════════════════════════',
+		`Tell the user the decision and what it means in your own words, ${nextStep}`,
 		'',
 	].join('\n');
 }

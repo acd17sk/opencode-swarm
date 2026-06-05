@@ -71,17 +71,22 @@ describe('EPIC_MODE_BANNER content', () => {
 		expect(EPIC_MODE_BANNER.toLowerCase()).toContain('phase reviewer');
 	});
 
-	test('mandates that the architect surface the verdict to the user', () => {
+	test('asks the architect to tell the user the verdict and wave plan', () => {
 		// Without this, weaker models (Kimi K2.6 observed) dispatched
 		// silently and the user had no signal Epic was doing anything.
-		// The 2026-06-05 mandatory-surface wording makes the verdict and
-		// wave-plan emit explicitly required.
-		expect(EPIC_MODE_BANNER).toContain('MANDATORY SURFACE');
-		expect(EPIC_MODE_BANNER).toContain('Epic Mode: <PROMOTE|DEMOTE>');
-		// And the wave plan must be surfaced after epic_plan_waves too —
-		// not just the verdict.
-		expect(EPIC_MODE_BANNER).toContain('Wave plan');
-		expect(EPIC_MODE_BANNER).toContain('BEFORE any');
+		// The 2026-06-05 v2 wording dropped the heavy "MANDATORY SURFACE /
+		// copy VERBATIM" compliance scaffolding (which made the architect
+		// robotic) in favor of a natural "tell the user … in your own
+		// words" nudge for BOTH the verdict and the wave plan.
+		expect(EPIC_MODE_BANNER).toContain('Tell the user the verdict');
+		expect(EPIC_MODE_BANNER).toContain('Tell the user the wave plan');
+		// Natural narration is now explicitly framed as conversation, not a
+		// form to fill in.
+		expect(EPIC_MODE_BANNER).toContain('in your own words');
+		expect(EPIC_MODE_BANNER).toContain('in your own voice');
+		// The robotic-era scaffolding must be gone.
+		expect(EPIC_MODE_BANNER).not.toContain('MANDATORY SURFACE');
+		expect(EPIC_MODE_BANNER).not.toContain('copy them VERBATIM');
 	});
 
 	test('lists the /swarm epic visibility commands', () => {

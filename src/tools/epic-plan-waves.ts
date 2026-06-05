@@ -325,42 +325,39 @@ export function formatWavePlanSurfaceBlock(
 
 	const waveLines = waves.map((w) => {
 		const ids = w.taskIds.join(', ');
-		const fileSample = w.files.slice(0, 3).join(', ');
+		// Basenames, not full paths — the user-facing breakdown reads better
+		// and the architect can paraphrase it cleanly.
+		const names = w.files.map((f) => path.basename(f));
+		const fileSample = names.slice(0, 3).join(', ');
 		const filesShown =
-			w.files.length > 3
-				? `${fileSample}, +${w.files.length - 3} more`
-				: fileSample || '(no files)';
-		return `▶ - Wave ${w.waveId}: [${ids}] — ${filesShown}`;
+			names.length > 3
+				? `${fileSample}, +${names.length - 3} more`
+				: fileSample || 'no files';
+		return `  Wave ${w.waveId}: ${ids}  (${filesShown})`;
 	});
 
-	const degradedIds = degraded.map((d) => d.taskId).join(', ') || '(none)';
-	const serializedIds = serialized.join(', ') || '(none)';
+	const degradedIds = degraded.map((d) => d.taskId).join(', ') || 'none';
+	const serializedIds = serialized.join(', ') || 'none';
 
-	// Dispatch instruction depends on whether wave 1 has multiple tasks.
+	// Dispatch guidance depends on whether wave 1 has multiple tasks.
 	const firstWave = waves[0];
-	const followup = firstWave
+	const nextStep = firstWave
 		? firstWave.taskIds.length > 1
-			? `AFTER surfacing, dispatch Wave 1: ${firstWave.taskIds.length} SEPARATE Task calls in ONE assistant message (one per id: ${firstWave.taskIds.join(', ')}).`
-			: `AFTER surfacing, dispatch Wave 1: ONE Task call for ${firstWave.taskIds[0]} (single-task wave — do NOT skip).`
+			? `then dispatch wave 1 as ${firstWave.taskIds.length} parallel Task calls (${firstWave.taskIds.join(', ')}) in one message.`
+			: `then dispatch wave 1 as one Task call (${firstWave.taskIds[0]}).`
 		: serialized.length > 0 || degraded.length > 0
-			? 'AFTER surfacing, dispatch serialized/degraded tasks one Task per assistant message.'
-			: 'AFTER surfacing, no tasks to dispatch — call phase_complete.';
+			? 'then dispatch the serialized/degraded tasks one at a time.'
+			: 'then call phase_complete — nothing to dispatch.';
 
+	// Lighter-touch surface (2026-06-05): facts + a plain nudge to share them,
+	// not a STOP/COPY-VERBATIM compliance block. See the matching rationale in
+	// epic-run-phase.ts formatVerdictSurfaceBlock.
 	return [
-		'═══════════════════════════════════════════════════════════════',
-		'STOP. MANDATORY USER-FACING SURFACE — banner step 4b.',
-		'Your next assistant message MUST begin with the block below,',
-		'between the ▶ markers, COPIED VERBATIM. Do NOT call any Task',
-		'tool until this block has been emitted to the user.',
-		'═══════════════════════════════════════════════════════════════',
-		'',
-		`▶ Wave plan (phase ${phase}, ${waves.length} wave${waves.length === 1 ? '' : 's'}):`,
+		`Wave plan for phase ${phase} — ${waves.length} wave${waves.length === 1 ? '' : 's'}:`,
 		...waveLines,
-		`▶ Serialized: [${serializedIds}]  Degraded: [${degradedIds}]`,
+		`Serialized: ${serializedIds}. Degraded: ${degradedIds}.`,
 		'',
-		'═══════════════════════════════════════════════════════════════',
-		followup,
-		'═══════════════════════════════════════════════════════════════',
+		`Tell the user this breakdown in your own words, ${nextStep}`,
 		'',
 	].join('\n');
 }
