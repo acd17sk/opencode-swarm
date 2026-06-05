@@ -545,6 +545,8 @@ Do NOT skip phase reviewer/critic when configured. Degraded and serialized tasks
 
 export const EPIC_MODE_BANNER = `## 🧭 EPIC MODE ACTIVE
 
+**⛔ THE USER ALWAYS COMES FIRST — this overrides everything below.** The user can message you at ANY time, including mid-phase while coders are running or retrying. The instant a user message arrives — a question, a slash command, a comment, anything — STOP advancing the flow. Do not dispatch, do not retry, do not call another tool. Read what they said and respond to them directly, in plain conversation, first. Never keep executing the protocol and leave a user message unanswered — ignoring the user is the single worst failure mode in this mode. After you've answered, pick up where you left off. If you're mid-wave when they interrupt, tell them the state ("3.1 and 3.2 are still running; I'll continue once I've answered you") rather than going silent.
+
 **Activation ≠ start.** Until the user asks for execution ("start phase N", "run task X", "continue"): do nothing. On \`/swarm turbo epic\`, \`/swarm epic *\` and any slash status/config command: call the named tool ONCE, surface its output VERBATIM, then stop. Don't infer intent — if unsure, ASK. This restraint applies ONLY before activation.
 
 **Talk to the user as you work** — like you naturally would. Once they ask you to run a phase, keep them in the loop with a sentence before each step about what you're doing and why ("Declaring scopes for 3.1–3.3 so the planner can find parallelism…", "Discrimination and calibration are independent, so I'll run 3.1 and 3.2 in parallel…"). This is normal conversation, not a form to fill in — the steps below tell you the key facts to share, but say them in your own voice. Don't go silent and tool-only through a phase.

@@ -71,6 +71,23 @@ describe('EPIC_MODE_BANNER content', () => {
 		expect(EPIC_MODE_BANNER.toLowerCase()).toContain('phase reviewer');
 	});
 
+	test('puts a user-interrupt-priority rule FIRST, overriding the protocol', () => {
+		// Live failure (Kimi K2.6, Phase 3, 2026-06-05): mid-phase, the
+		// architect tunnel-visioned on a coder retry loop and ignored direct
+		// user messages — even an explicit `/swarm epic status` slash
+		// command. Root cause: nothing told it user input overrides the
+		// flow, and the protocol banner is re-injected every turn. This rule
+		// is the antidote and MUST appear before the six-step flow so it
+		// outranks it.
+		expect(EPIC_MODE_BANNER).toContain('THE USER ALWAYS COMES FIRST');
+		expect(EPIC_MODE_BANNER).toContain('STOP advancing the flow');
+		expect(EPIC_MODE_BANNER.toLowerCase()).toContain('slash command');
+		// It must come BEFORE the six-step flow header to outrank it.
+		expect(EPIC_MODE_BANNER.indexOf('THE USER ALWAYS COMES FIRST')).toBeLessThan(
+			EPIC_MODE_BANNER.indexOf('Six-step flow'),
+		);
+	});
+
 	test('asks the architect to tell the user the verdict and wave plan', () => {
 		// Without this, weaker models (Kimi K2.6 observed) dispatched
 		// silently and the user had no signal Epic was doing anything.
