@@ -160,37 +160,6 @@ export declare function executeEpicRunPhase(args: EpicRunPhaseArgs): Promise<Epi
  * unambiguous, always-visible.
  */
 /**
- * Format the MANDATORY user-facing surface block for `epic_decide_phase`.
- *
- * Live-test discovery (Kimi K2.6, fair-clinical-bench Phase 3, 2026-06-05):
- * the EPIC_MODE_BANNER's "MANDATORY SURFACE" wording reached the architect
- * (we verified by observing the six-step flow ran correctly), but the
- * model SKIPPED both required surfaces — went straight from
- * `epic_decide_phase` → `epic_plan_waves` → `Task` with no user-facing
- * verdict OR wave plan emitted. Banner-level instruction is necessary
- * but insufficient: weaker models with thinking turns prefer to keep
- * calling tools over emitting prose between calls.
- *
- * Fix at the tool-result layer instead. The tool now returns a string
- * that LEADS with the literal surface text the architect must echo,
- * pre-formatted server-side, with an imperative "STOP. copy verbatim
- * NOW. Do not call any tool yet." prelude. This is more enforceable
- * than the banner because:
- *
- *   (a) The required text is the FIRST thing in the most recent tool
- *       result — high salience, low energy to comply.
- *   (b) The text is rendered server-side — no synthesis required, just
- *       a copy. The model can't "format it wrong" or skip the format step.
- *   (c) The "do not call any tool" instruction is colocated with the
- *       data it constrains.
- *
- * Returns '' (empty string) for outcomes the banner doesn't mandate a
- * surface for (`scopes-missing`, `phase-already-complete`, `no-phase`,
- * etc.) — for those, the architect handles the response silently as
- * retries/fixes.
- */
-export declare function formatVerdictSurfaceBlock(result: EpicRunPhaseResult, directory: string, phase: number): Promise<string>;
-/**
  * Transparent decide-only tool. Returns the verdict (promote/demote/error)
  * without dispatching coders. The architect should:
  *  1. Call this after declaring scopes for all pending tasks.

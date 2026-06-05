@@ -848,11 +848,18 @@ Use \`epic_plan_waves\` (NOT \`lean_turbo_plan_lanes\` or the deprecated \`epic_
 - \`no-phase\` | \`phase-empty\` | \`phase-already-complete\` | \`epic-state-unreadable\` → fix per response \`message\`, retry. \`phase-already-complete\` means call step 2 with \`phase=N+1\` (NOT step 4 directly).
 - other → fix per \`message\`, retry
 
-**3. Tell the user the verdict.** After \`epic_decide_phase\`, share the decision (promote/demote), the coupling score \`p\`, and the dependency chain — in your own words, a sentence or two — before moving on. The tool result hands you these facts ready to paraphrase. Don't dispatch silently; the user should understand why Epic chose parallel vs serial.
+**3. Surface the verdict to the user immediately, before any further action:**
+> Epic Mode: <PROMOTE|DEMOTE> (p=<value>) — <one-sentence rationale or top blocking reason>
+> Dependencies: <task_id> ← <deps>; … (omit if none)
+
+The verdict is the user's only visibility into what Epic is doing — silence here makes the mode invisible. If you're going to spend time on this phase, tell the user why up front. Phrase it naturally; the format above is a guide, not a script.
 
 **4. \`epic_plan_waves(directory, phase=N)\`** — returns \`{ waves: [{ waveId, taskIds, files }], serializedTasks, degradedTasks, degradationSummary }\`. Failure reasons mirror step 2; additionally: \`git-failed\` (retry), \`planner-error\` (check \`errors[0]\`).
 
-**4b. Tell the user the wave plan.** After \`epic_plan_waves\`, walk the user through the breakdown — which tasks run in which wave, what's parallel, anything serialized/degraded — before dispatching. The tool result hands you the wave list ready to paraphrase. If \`waves.length\` exceeds the distinct-dependency-layer count, also flag the over-split and its likely cause (typical: a shared file like a barrel/registry in multiple scopes forces serial waves), e.g. "Wave N split into K single-task waves because every scope claims \`<shared-file>\` — re-declare those tasks without it to restore parallelism, then re-plan."
+**4b. Surface the wave plan to the user, before dispatching any \`Task\`:**
+> Wave plan (<N> waves): Wave 1 → [<ids>] (parallel); Wave 2 → [<ids>]; … — serialized [<ids>], degraded [<ids>]
+
+Walk them through which tasks run in which wave and what's parallel — naturally, in your own words. If \`waves.length\` exceeds the distinct-dependency-layer count, also flag the over-split and its likely cause (typical: a shared file like a barrel/registry in multiple scopes forces serial waves), e.g. "Wave N split into K single-task waves because every scope claims \`<shared-file>\` — re-declare those tasks without it to restore parallelism, then re-plan."
 
 \`serializedTasks\` causes (NOT \`declare_scope\`-fixable): cycle, \`no-scope\`, \`invalid-scope\`, cap-exhaustion. Fix dep graph or scope contents, re-plan.
 
@@ -109294,33 +109301,6 @@ var _internals58 = {
   buildIsUpstreamCommittedWithStatus,
   loadPluginConfigWithMeta
 };
-function formatWavePlanSurfaceBlock(result, phase) {
-  if (!result.success || !result.waves)
-    return "";
-  const waves = result.waves;
-  const serialized = result.serializedTasks ?? [];
-  const degraded = result.degradedTasks ?? [];
-  const waveLines = waves.map((w) => {
-    const ids = w.taskIds.join(", ");
-    const names = w.files.map((f) => path116.basename(f));
-    const fileSample = names.slice(0, 3).join(", ");
-    const filesShown = names.length > 3 ? `${fileSample}, +${names.length - 3} more` : fileSample || "no files";
-    return `  Wave ${w.waveId}: ${ids}  (${filesShown})`;
-  });
-  const degradedIds = degraded.map((d) => d.taskId).join(", ") || "none";
-  const serializedIds = serialized.join(", ") || "none";
-  const firstWave = waves[0];
-  const nextStep = firstWave ? firstWave.taskIds.length > 1 ? `dispatch wave 1 as ${firstWave.taskIds.length} parallel Task calls (${firstWave.taskIds.join(", ")}) in one message.` : `dispatch wave 1 as one Task call (${firstWave.taskIds[0]}).` : serialized.length > 0 || degraded.length > 0 ? "dispatch the serialized/degraded tasks one at a time." : "call phase_complete — nothing to dispatch.";
-  return [
-    `Wave plan for phase ${phase} — ${waves.length} wave${waves.length === 1 ? "" : "s"}:`,
-    ...waveLines,
-    `Serialized: ${serializedIds}. Degraded: ${degradedIds}.`,
-    "",
-    `Walk the user through this breakdown in your own words — name which tasks are in which wave, what runs in parallel, and anything serialized/degraded — using the computed numbers above (not a guess). Then ${nextStep}`,
-    ""
-  ].join(`
-`);
-}
 var epic_plan_waves = createSwarmTool({
   description: "Partition a phase's pending tasks into ordered concurrent waves for Epic Mode dispatch. " + "A wave is a set of tasks with mutually disjoint declared scopes and all dependencies satisfied by prior waves. " + "Returns `{ waves: [{ waveId, taskIds, files }, ...], serializedTasks, degradedTasks }`. " + 'For each wave in order, the architect dispatches one `Task(subagent_type="coder", ...)` per `taskId` — all in one assistant message — so the wave runs concurrently and each coder appears as a visible subagent. ' + "Wait for the wave to finish before dispatching the next. " + "Pair with `epic_decide_phase` (called first; this tool is only relevant on a `promote` verdict). " + "Preflight reject reasons: `no-plan`, `no-phase`, `phase-empty`, `phase-already-complete`, `scopes-missing` (call `declare_scope` for `missingScopes`), `git-failed` (transient — retry), `planner-error`.",
   args: {
@@ -109334,8 +109314,7 @@ var epic_plan_waves = createSwarmTool({
       ...parsed,
       directory: _directory
     });
-    const surface = formatWavePlanSurfaceBlock(result, parsed.phase);
-    return surface + JSON.stringify(result, null, 2);
+    return JSON.stringify(result, null, 2);
   }
 });
 
@@ -110536,34 +110515,6 @@ async function executeEpicDecidePhase(args2) {
     reason: verdict.decision === "demote" ? "demoted" : "decided"
   };
 }
-async function formatVerdictSurfaceBlock(result, directory, phase) {
-  const v = result.verdict;
-  if (!v)
-    return "";
-  if (result.reason !== "decided" && result.reason !== "demoted")
-    return "";
-  const decision = v.decision === "promote" ? "PROMOTE" : "DEMOTE";
-  const p = v.p.toFixed(3);
-  const reason = v.blockingReasons && v.blockingReasons.length > 0 ? v.blockingReasons[0] : v.decision === "promote" ? "all activation gates cleared" : "activation gates blocked";
-  let depsLine = "Dependencies: (plan unreadable — surface verdict only)";
-  try {
-    const plan = await _internals60.loadPlanJsonOnly(directory);
-    const phaseInPlan = plan?.phases.find((ph) => ph.id === phase);
-    if (phaseInPlan) {
-      const depPairs = (phaseInPlan.tasks ?? []).filter((t) => t.status !== "completed" && (t.depends?.length ?? 0) > 0).map((t) => `${t.id} ← ${(t.depends ?? []).join(", ")}`);
-      depsLine = depPairs.length > 0 ? `Dependencies: ${depPairs.join("; ")}` : "Dependencies: (none — every task has no upstream)";
-    }
-  } catch {}
-  const nextStep = v.decision === "promote" ? `call epic_plan_waves(directory, phase=${phase}).` : "fall back to per-task serial dispatch.";
-  return [
-    `Verdict for phase ${phase}: ${decision} (p=${p} — ${reason}).`,
-    depsLine,
-    "",
-    `Tell the user — in your own words, but include ALL of these — the decision (${decision}), the score p=${p}, and the dependency chain above. Then ${nextStep}`,
-    ""
-  ].join(`
-`);
-}
 var epic_decide_phase = createSwarmTool({
   description: "Compute the Epic Mode verdict for a phase. Runs a scope-graph preflight, rolls the calibration loop forward over any new divergence records, computes the plan-wide coupling coefficient `p`, gates on three checks (p-threshold, hot-module, greenfield), persists the decision to .swarm/evidence/epic-promotions.jsonl, and returns the verdict (promote/demote/error). This tool does NOT dispatch coders; on a `promote` verdict the architect pairs it with `epic_plan_waves` to obtain the wave plan, then for each wave issues one `Task(subagent_type='coder', ...)` per taskId — all in one assistant message — so each concurrent coder appears as a visible subagent. On a `demote` verdict the architect falls back to per-task serial. Use only when /swarm epic is on for the session.",
   args: {
@@ -110579,8 +110530,7 @@ var epic_decide_phase = createSwarmTool({
       sessionID,
       directory: _directory
     });
-    const surface = await formatVerdictSurfaceBlock(result, _directory, phase);
-    return surface + JSON.stringify(result, null, 2);
+    return JSON.stringify(result, null, 2);
   }
 });
 
@@ -111695,7 +111645,7 @@ function countCodeLines(content) {
   return lines.length;
 }
 function isTestFile(filePath) {
-  const basename17 = path121.basename(filePath);
+  const basename16 = path121.basename(filePath);
   const _ext = path121.extname(filePath).toLowerCase();
   const testPatterns = [
     ".test.",
@@ -111711,7 +111661,7 @@ function isTestFile(filePath) {
     ".spec.jsx"
   ];
   for (const pattern of testPatterns) {
-    if (basename17.includes(pattern)) {
+    if (basename16.includes(pattern)) {
       return true;
     }
   }

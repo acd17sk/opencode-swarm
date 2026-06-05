@@ -95,15 +95,24 @@ describe('EPIC_MODE_BANNER content', () => {
 		// copy VERBATIM" compliance scaffolding (which made the architect
 		// robotic) in favor of a natural "tell the user … in your own
 		// words" nudge for BOTH the verdict and the wave plan.
-		expect(EPIC_MODE_BANNER).toContain('Tell the user the verdict');
-		expect(EPIC_MODE_BANNER).toContain('Tell the user the wave plan');
-		// Natural narration is now explicitly framed as conversation, not a
-		// form to fill in.
+		// 2026-06-05 v3: reverted to the 06-03 plain "surface immediately"
+		// phrasing that empirically worked, after the MANDATORY/VERBATIM
+		// surface-block cascade (622aa1da etc.) regressed natural talking.
+		expect(EPIC_MODE_BANNER).toContain(
+			'Surface the verdict to the user immediately',
+		);
+		expect(EPIC_MODE_BANNER).toContain('Surface the wave plan to the user');
+		// Natural narration is still framed as conversation, not a script.
 		expect(EPIC_MODE_BANNER).toContain('in your own words');
 		expect(EPIC_MODE_BANNER).toContain('in your own voice');
-		// The robotic-era scaffolding must be gone.
+		// The robotic-era scaffolding must be gone — no MANDATORY SURFACE and
+		// no "copy VERBATIM" surface-block phrasing (those tool-result
+		// functions were deleted). NOTE: a legitimate "surface its output
+		// VERBATIM" remains on the slash-command line (echo status output) —
+		// that's not the robotic phrasing, so we target the specific strings.
 		expect(EPIC_MODE_BANNER).not.toContain('MANDATORY SURFACE');
 		expect(EPIC_MODE_BANNER).not.toContain('copy them VERBATIM');
+		expect(EPIC_MODE_BANNER).not.toContain('COPIED VERBATIM');
 	});
 
 	test('lists the /swarm epic visibility commands', () => {

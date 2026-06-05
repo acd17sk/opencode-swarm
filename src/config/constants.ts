@@ -566,11 +566,18 @@ Use \`epic_plan_waves\` (NOT \`lean_turbo_plan_lanes\` or the deprecated \`epic_
 - \`no-phase\` | \`phase-empty\` | \`phase-already-complete\` | \`epic-state-unreadable\` → fix per response \`message\`, retry. \`phase-already-complete\` means call step 2 with \`phase=N+1\` (NOT step 4 directly).
 - other → fix per \`message\`, retry
 
-**3. Tell the user the verdict.** After \`epic_decide_phase\`, share the decision (promote/demote), the coupling score \`p\`, and the dependency chain — in your own words, a sentence or two — before moving on. The tool result hands you these facts ready to paraphrase. Don't dispatch silently; the user should understand why Epic chose parallel vs serial.
+**3. Surface the verdict to the user immediately, before any further action:**
+> Epic Mode: <PROMOTE|DEMOTE> (p=<value>) — <one-sentence rationale or top blocking reason>
+> Dependencies: <task_id> ← <deps>; … (omit if none)
+
+The verdict is the user's only visibility into what Epic is doing — silence here makes the mode invisible. If you're going to spend time on this phase, tell the user why up front. Phrase it naturally; the format above is a guide, not a script.
 
 **4. \`epic_plan_waves(directory, phase=N)\`** — returns \`{ waves: [{ waveId, taskIds, files }], serializedTasks, degradedTasks, degradationSummary }\`. Failure reasons mirror step 2; additionally: \`git-failed\` (retry), \`planner-error\` (check \`errors[0]\`).
 
-**4b. Tell the user the wave plan.** After \`epic_plan_waves\`, walk the user through the breakdown — which tasks run in which wave, what's parallel, anything serialized/degraded — before dispatching. The tool result hands you the wave list ready to paraphrase. If \`waves.length\` exceeds the distinct-dependency-layer count, also flag the over-split and its likely cause (typical: a shared file like a barrel/registry in multiple scopes forces serial waves), e.g. "Wave N split into K single-task waves because every scope claims \`<shared-file>\` — re-declare those tasks without it to restore parallelism, then re-plan."
+**4b. Surface the wave plan to the user, before dispatching any \`Task\`:**
+> Wave plan (<N> waves): Wave 1 → [<ids>] (parallel); Wave 2 → [<ids>]; … — serialized [<ids>], degraded [<ids>]
+
+Walk them through which tasks run in which wave and what's parallel — naturally, in your own words. If \`waves.length\` exceeds the distinct-dependency-layer count, also flag the over-split and its likely cause (typical: a shared file like a barrel/registry in multiple scopes forces serial waves), e.g. "Wave N split into K single-task waves because every scope claims \`<shared-file>\` — re-declare those tasks without it to restore parallelism, then re-plan."
 
 \`serializedTasks\` causes (NOT \`declare_scope\`-fixable): cycle, \`no-scope\`, \`invalid-scope\`, cap-exhaustion. Fix dep graph or scope contents, re-plan.
 
