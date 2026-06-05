@@ -860,13 +860,30 @@ Call \`epic_decide_phase(directory, phase=N, sessionID)\`. This runs preflight +
 - \`reason: "epic-state-unreadable"\` → \`.swarm/epic-state.json\` is corrupt. The state file must be repaired (delete it to reseed, or fix the JSON syntax) before Epic Mode can decide.
 - any other error reason → fix per the structured \`message\` and retry.
 
-**3. Surface the verdict to the user immediately, before any further action:**
-> Epic Mode: <DECISION> (p=<value>) — <one-sentence rationale or top blocking reason>
+**3. MANDATORY — Surface the verdict to the user IMMEDIATELY after \`epic_decide_phase\` returns, BEFORE any further tool call.**
 
-The verdict is the user's only visibility into what Epic is doing — silence here makes the mode invisible. If you're going to spend time on this phase, tell the user why up front.
+Your very next assistant message MUST contain exactly this line (substituting real values):
+> Epic Mode: <PROMOTE|DEMOTE> (p=<0.XXX>) — <one-sentence rationale OR top blocking reason from verdict.blockingReasons[0]>
 
-**4. Get the wave plan.**
-Call \`epic_plan_waves(directory, phase=N)\`. Returns \`{ waves: [{ waveId, taskIds, files }, ...], serializedTasks, degradedTasks }\` — the wave planner partitions tasks into ordered concurrent groups. Each wave contains tasks whose dependencies are satisfied by completed waves AND whose declared scopes are mutually disjoint.
+Then a second line summarising the dependency graph for the phase's pending tasks:
+> Dependencies: <task_id> ← <comma-separated deps>; <task_id> ← <deps>; ... (omit tasks with no deps)
+
+NO inline commentary, NO file reads, NO additional tool calls before these two lines. Step 4 is allowed only AFTER both lines have been emitted in chat. Skipping this step is a banner violation — the user has zero visibility into Epic Mode's reasoning without it.
+
+**4. Get the wave plan AND surface it.**
+Call \`epic_plan_waves(directory, phase=N)\`. Returns \`{ waves: [{ waveId, taskIds, files }, ...], serializedTasks, degradedTasks, degradationSummary }\` — the wave planner partitions tasks into ordered concurrent groups. Each wave contains tasks whose dependencies are satisfied by completed waves AND whose declared scopes are mutually disjoint.
+
+**MANDATORY — Surface the wave plan to the user IMMEDIATELY, BEFORE dispatching any Task.** Your assistant message right after the \`epic_plan_waves\` call MUST contain a wave breakdown like:
+> Wave plan (3 waves, 6 tasks concurrent):
+> - Wave 1: [2.1] — protocol.py, registry.py
+> - Wave 2: [2.2] — column_types.py
+> - Wave 3: [2.3, 2.4, 2.5, 2.6] — logistic.py, random_forest.py, xgboost.py, mlp.py
+> Serialized: [] Degraded: []
+
+If \`waves.length\` is greater than the number of distinct dependency layers in the pending set, ALSO surface a one-line diagnosis of what split parallelism (typically: shared file in multiple scopes). Example:
+> ⚠ Wave 3 expected to contain [2.3, 2.4, 2.5, 2.6] concurrent but planner split into 4 single-task waves because every scope claims \`models/__init__.py\`. To restore parallelism: re-declare 2.3-2.6 without \`__init__.py\` (use decorator-based self-registration in each model file), then re-call epic_plan_waves.
+
+This surface is the user's only visibility into wave-planner decisions. Skipping it is a banner violation.
 
 Failure-mode taxonomy — these are NOT the same and require different responses:
 - \`reason: "scopes-missing"\` (returned from step 2 OR step 4) → architect forgot to declare; loop back to step 1 and \`declare_scope\` for each id in \`missingScopes\`.

@@ -73,10 +73,18 @@ describe('EPIC_MODE_BANNER content', () => {
 	test('mandates that the architect surface the verdict to the user', () => {
 		// Without this, weaker models (Kimi K2.6 observed) dispatched
 		// silently and the user had no signal Epic was doing anything.
+		// The stronger 2026-06-05 wording makes the surface MANDATORY and
+		// explicitly forbids any tool call between epic_decide_phase and
+		// the chat-surface step.
 		expect(EPIC_MODE_BANNER).toContain(
-			'Surface the verdict to the user immediately',
+			'MANDATORY — Surface the verdict to the user IMMEDIATELY',
 		);
-		expect(EPIC_MODE_BANNER).toContain('Epic Mode: <DECISION>');
+		expect(EPIC_MODE_BANNER).toContain('Epic Mode: <PROMOTE|DEMOTE>');
+		// And the wave plan must be surfaced after epic_plan_waves too —
+		// not just the verdict.
+		expect(EPIC_MODE_BANNER).toContain(
+			'MANDATORY — Surface the wave plan to the user IMMEDIATELY',
+		);
 	});
 
 	test('lists all four /swarm epic visibility commands', () => {
