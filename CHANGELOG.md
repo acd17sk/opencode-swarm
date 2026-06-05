@@ -1,5 +1,61 @@
 # Changelog
 
+## [7.50.4](https://github.com/zaxbysauce/opencode-swarm/compare/v7.50.3...v7.50.4) (2026-06-05)
+
+
+### Bug Fixes
+
+* **validation:** harden sibling JSON readers with Zod schema parsing ([#1111](https://github.com/zaxbysauce/opencode-swarm/issues/1111)) ([e1d7299](https://github.com/zaxbysauce/opencode-swarm/commit/e1d7299f9a4a23d5c6ad3c2e3cb33c0675bf3cd1))
+
+## [7.50.3](https://github.com/zaxbysauce/opencode-swarm/compare/v7.50.2...v7.50.3) (2026-06-05)
+
+
+### Bug Fixes
+
+* **gate-evidence:** harden evidence writes against symlink path escape ([#1110](https://github.com/zaxbysauce/opencode-swarm/issues/1110)) ([27159e2](https://github.com/zaxbysauce/opencode-swarm/commit/27159e218e02149bd69b9290521269b61352bce4))
+
+## [7.50.2](https://github.com/zaxbysauce/opencode-swarm/compare/v7.50.1...v7.50.2) (2026-06-04)
+
+
+### Bug Fixes
+
+* **test-impact:** harden appendTestRun against concurrent writers ([#1109](https://github.com/zaxbysauce/opencode-swarm/issues/1109)) ([bbc6bc3](https://github.com/zaxbysauce/opencode-swarm/commit/bbc6bc3ba51c5a38afa8603cd5312c74c7595925))
+
+## [7.50.1](https://github.com/zaxbysauce/opencode-swarm/compare/v7.50.0...v7.50.1) (2026-06-04)
+
+
+### Bug Fixes
+
+* **test-impact:** add pass-rate variance to flaky scoring ([#1108](https://github.com/zaxbysauce/opencode-swarm/issues/1108)) ([a2cc05e](https://github.com/zaxbysauce/opencode-swarm/commit/a2cc05ea570dbf22013e664cc633d3d2279f8e0c))
+
+## [7.50.0](https://github.com/zaxbysauce/opencode-swarm/compare/v7.49.1...v7.50.0) (2026-06-04)
+
+
+### Features
+
+* **tools:** add native apply_patch tool with scope-guard array-aware path extraction ([#1116](https://github.com/zaxbysauce/opencode-swarm/issues/1116)) ([09a3a3f](https://github.com/zaxbysauce/opencode-swarm/commit/09a3a3f179581447944666dbd457c7ff76cbb05e))
+
+## [7.49.1](https://github.com/zaxbysauce/opencode-swarm/compare/v7.49.0...v7.49.1) (2026-06-04)
+
+
+### Bug Fixes
+
+* **critic:** add tampering sub-branch to critic prompts with review fixes ([#1112](https://github.com/zaxbysauce/opencode-swarm/issues/1112)) ([317a636](https://github.com/zaxbysauce/opencode-swarm/commit/317a6362ef349fe20d2e78e9248c79503eaa5de6))
+
+## [7.49.0](https://github.com/zaxbysauce/opencode-swarm/compare/v7.48.1...v7.49.0) (2026-06-04)
+
+
+### Features
+
+* **tools:** tool auto-registration via single manifest ([#1107](https://github.com/zaxbysauce/opencode-swarm/issues/1107)) ([79c7a80](https://github.com/zaxbysauce/opencode-swarm/commit/79c7a80383eb86c5f5c3c98dc836b2640a963811))
+
+## [7.48.1](https://github.com/zaxbysauce/opencode-swarm/compare/v7.48.0...v7.48.1) (2026-06-03)
+
+
+### Bug Fixes
+
+* **agents:** fill designer-stripping gaps and warn on unstrippable custom-prompt refs ([#1102](https://github.com/zaxbysauce/opencode-swarm/issues/1102)) ([0e829c7](https://github.com/zaxbysauce/opencode-swarm/commit/0e829c745470148d23839cbe696e1406018441ef))
+
 ## [7.48.0](https://github.com/zaxbysauce/opencode-swarm/compare/v7.47.0...v7.48.0) (2026-06-03)
 
 
