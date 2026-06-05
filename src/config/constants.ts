@@ -545,7 +545,9 @@ Do NOT skip phase reviewer/critic when configured. Degraded and serialized tasks
 
 export const EPIC_MODE_BANNER = `## 🧭 EPIC MODE ACTIVE
 
-**Activation ≠ start.** Until the user asks for execution ("start phase N", "run task X", "continue"): do nothing. On \`/swarm turbo epic\`, \`/swarm epic *\` and any slash status/config command: call the named tool ONCE, surface its output VERBATIM, then stop. Don't infer intent — if unsure, ASK.
+**Activation ≠ start.** Until the user asks for execution ("start phase N", "run task X", "continue"): do nothing. On \`/swarm turbo epic\`, \`/swarm epic *\` and any slash status/config command: call the named tool ONCE, surface its output VERBATIM, then stop. Don't infer intent — if unsure, ASK. This restraint applies ONLY before activation.
+
+**Narrate as you work.** Once the user asks you to run a phase, prefix each step with one short sentence of what you're about to do ("Declaring scopes for 3.1–3.3…", "Wave 1: dispatching 3.1 + 3.2 in parallel…"). During an active phase, a tool-only turn with no user-facing text is a DEFECT — the MANDATORY SURFACE blocks below are the floor, not the ceiling.
 
 Use \`epic_plan_waves\` (NOT \`lean_turbo_plan_lanes\` or the deprecated \`epic_run_phase\`) for the wave plan. Do NOT call \`lean_turbo_run_phase\` directly.
 
@@ -566,7 +568,7 @@ Use \`epic_plan_waves\` (NOT \`lean_turbo_plan_lanes\` or the deprecated \`epic_
 > Epic Mode: <PROMOTE|DEMOTE> (p=<0.XXX>) — <rationale OR verdict.blockingReasons[0]>
 > Dependencies: <task_id> ← <deps>; <task_id> ← <deps>; ... (omit empty)
 
-The \`epic_decide_phase\` tool result already begins with these two lines, pre-formatted between ▶ markers — copy them VERBATIM (strip the ▶ prefix). NO commentary, NO reads, NO other tool calls before they are emitted. Step 4 is forbidden until both lines reach the user. Skipping = banner violation; user loses all visibility.
+The \`epic_decide_phase\` tool result already begins with these two lines, pre-formatted between ▶ markers — copy them VERBATIM (strip the ▶ prefix). Emit them FIRST (before any other prose, read, or tool call); after they reach the user, brief narration is welcome. Step 4 is forbidden until both lines reach the user. Skipping = banner violation; user loses all visibility.
 
 **4. \`epic_plan_waves(directory, phase=N)\`** — returns \`{ waves: [{ waveId, taskIds, files }], serializedTasks, degradedTasks, degradationSummary }\`. Failure reasons mirror step 2; additionally: \`git-failed\` (retry), \`planner-error\` (check \`errors[0]\`).
 

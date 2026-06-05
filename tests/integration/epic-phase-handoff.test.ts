@@ -32,7 +32,7 @@ import * as path from 'node:path';
 import type { Plan } from '../../src/config/plan-schema';
 import { savePlan, updateTaskStatus } from '../../src/plan/manager';
 import { executeEpicDecidePhase } from '../../src/tools/epic-run-phase';
-import { executeLeanTurboPlanLanes } from '../../src/tools/lean-turbo-plan-lanes';
+import { executeEpicPlanWaves } from '../../src/tools/epic-plan-waves';
 import { enableEpicMode } from '../../src/turbo/epic/state';
 
 function git(args: string[], cwd: string): { status: number; stdout: string } {
@@ -165,19 +165,21 @@ describe('Epic Mode end-to-end handoff — Rule 2 commit → Rule 3 predicate �
 		const showLog = git(['log', '-1', '--name-only', '--pretty='], dir).stdout;
 		expect(showLog).toContain('src/foo.ts');
 
-		// Now plan Phase 2 via the architect-facing tool. Rule 3's
-		// predicate should see 1.1 in git history → 2.1 lands on a lane.
-		const result = await executeLeanTurboPlanLanes({
+		// Now plan Phase 2 via Epic's wave planner (the tool that owns
+		// Rule 3 — `lean_turbo_plan_lanes` is the maintainer's tool and
+		// deliberately carries NO Rule-3 predicate). Rule 3's predicate
+		// should see 1.1 in git history → 2.1 lands in a wave.
+		const result = await executeEpicPlanWaves({
 			directory: dir,
 			phase: 2,
 			scopes: { '2.1': ['src/bar.ts'] },
 		});
 		expect(result.success).toBe(true);
 		expect(result.degradedTasks ?? []).toEqual([]);
-		expect((result.lanes ?? []).length).toBeGreaterThan(0);
-		// 2.1 must be on a lane.
-		const allLaneTasks = (result.lanes ?? []).flatMap((l) => l.taskIds);
-		expect(allLaneTasks).toContain('2.1');
+		expect((result.waves ?? []).length).toBeGreaterThan(0);
+		// 2.1 must be in a wave.
+		const allWaveTasks = (result.waves ?? []).flatMap((w) => w.taskIds);
+		expect(allWaveTasks).toContain('2.1');
 	});
 
 	test('without a scope file: completing 1.1 produces a marker-only commit, no working-tree contamination', async () => {
@@ -320,10 +322,10 @@ describe('Epic Mode end-to-end handoff — Rule 2 commit → Rule 3 predicate �
 	});
 
 	test('Rule 3 blocks Phase 2 when 1.1 is NOT yet committed (predicate returns false)', async () => {
-		// Don't complete 1.1. Plan phase 2 directly. The predicate looks
-		// at git log, finds no swarm(task 1.1) marker, returns false,
-		// the planner degrades 2.1.
-		const result = await executeLeanTurboPlanLanes({
+		// Don't complete 1.1. Plan phase 2 via Epic's wave planner (the
+		// tool that owns Rule 3). The predicate looks at git log, finds no
+		// swarm(task 1.1) marker, returns false, the planner degrades 2.1.
+		const result = await executeEpicPlanWaves({
 			directory: dir,
 			phase: 2,
 			scopes: { '2.1': ['src/bar.ts'] },

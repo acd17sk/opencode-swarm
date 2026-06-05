@@ -4,8 +4,6 @@
  * Partitions phase tasks into parallel lanes based on file-scope conflicts.
  */
 import type { ToolDefinition } from '@opencode-ai/plugin/tool';
-import { loadPluginConfigWithMeta as loadPluginConfigWithMeta_import } from '../config';
-import { buildIsUpstreamCommittedWithStatus as buildIsUpstreamCommittedWithStatus_import } from '../turbo/epic/upstream-commits';
 import type { LeanTurboLanePlan } from '../turbo/lean/planner';
 /**
  * Arguments for the lean_turbo_plan_lanes tool
@@ -31,17 +29,6 @@ export interface LeanTurboPlanLanesResult {
  * Partitions phase tasks into parallel lanes based on file-scope conflicts.
  */
 export declare function executeLeanTurboPlanLanes(args: LeanTurboPlanLanesArgs): Promise<LeanTurboPlanLanesResult>;
-/**
- * DI seam — production code routes git-detection and predicate
- * construction through `_internals` so tests can substitute
- * deterministic doubles without `mock.module` (AGENTS.md invariant 7).
- */
-export declare const _internals: {
-    isGitRepo: (cwd: string) => boolean;
-    buildIsUpstreamCommitted: (cwd: string) => ((taskId: string) => boolean);
-    buildIsUpstreamCommittedWithStatus: typeof buildIsUpstreamCommittedWithStatus_import;
-    loadPluginConfigWithMeta: typeof loadPluginConfigWithMeta_import;
-};
 /**
  * Tool definition for lean_turbo_plan_lanes
  */
