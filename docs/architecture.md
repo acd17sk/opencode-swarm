@@ -876,6 +876,7 @@ project/
 │   ├── state.ts           # Shared swarm state singleton (zero imports)
 │   ├── agents/            # Agent definitions and factory
 │   ├── config/            # Schema, constants, loader
+│   ├── epic/              # Epic Mode — one plan = one epic in parallel waves (maintainer guide: src/epic/README.md)
 │   ├── commands/          # Slash command handlers (12 commands)
 │   │   ├── index.ts       # Factory + dispatcher (createSwarmCommandHandler)
 │   │   ├── status.ts      # /swarm status

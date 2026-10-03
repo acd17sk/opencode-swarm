@@ -132,7 +132,7 @@ All project state lives in `.swarm/` — plans, evidence, context, knowledge, an
 
 ## Execution Modes
 
-Swarm has two independent mode systems:
+Swarm has two independent mode systems, plus the plan-scoped Epic Mode below:
 
 **Session modes** — toggle per session with a slash command:
 
@@ -154,6 +154,14 @@ Full-Auto reduces approval friction by deterministically allowing safe operation
 | `strict` | Maximum safety — adds slop-detector and incremental-verify hooks |
 | `balanced` (default) | Standard hooks |
 | `fast` | Skips compaction service — for short sessions under context pressure |
+
+**Epic Mode** — plan-scoped and opt-in. An epic is one plan, run phase by phase as a series of parallel waves:
+
+| Mode | Safety | Speed | When to Use |
+|------|--------|-------|------------|
+| **Epic** | High — per-task QA always runs; Turbo stays off | Fast on plans with many independent tasks | Large plans whose tasks declare disjoint scopes |
+
+The `epic_next_wave` tool owns the lifecycle. It issues each wave as the ready tasks whose declared scopes do not conflict, closes a wave once every task in it is resolved, and keeps phases in order. In a git project, each coder works in an isolated worktree, lands on the epic branch `swarm/epic/<key>`, and `/swarm epic close` squash-lands the branch for you to commit (staged, uncommitted). After each wave, Epic learns which files are risky and which files tasks write together, and uses that to plan later waves and later epics. To enable it, add `"epic": {"mode": {"enabled": true}}` to the config (no `turbo` block needed), then run `/swarm epic start`. See [docs/modes.md](docs/modes.md#epic-mode-preview). Maintainers can start with [src/epic/README.md](src/epic/README.md).
 
 Switch session modes with `/swarm turbo [on|off]` or `/swarm full-auto [on|off]`. Control phase-boundary auto-proceed with `/swarm auto-proceed [on|off]`. Set project mode in config. Lean Turbo is configured in `turbo.lean.*` in config and composes with all session modes. See [docs/modes.md](docs/modes.md).
 

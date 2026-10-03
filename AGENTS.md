@@ -10,6 +10,7 @@
 | Write or modify any test file | this file → `.opencode/skills/writing-tests/SKILL.md` (or `.claude/skills/writing-tests/SKILL.md` for Claude) |
 | Commit / push / open a PR | this file → `.claude/skills/commit-pr/SKILL.md` |
 | Trace, investigate, root-cause, fix, or resolve an issue or bug | this file → `.opencode/skills/issue-tracer/SKILL.md` (or `.claude/skills/issue-tracer/SKILL.md` for Claude) |
+| Change Epic Mode (`src/epic/**`, an Epic seam in a shared file, or the `epic` config block) | this file → `src/epic/README.md` (Epic maintainer guide: invariants, seams, tests, recipes) |
 | Swarm-mode Claude work | this file → `CLAUDE.md` → `.claude/session/swarm-mode.md` (when present) |
 | Architecture / plugin init / subprocess / tool-registration / plan-durability / .swarm storage / runtime-portability change | this file → `docs/engineering-invariants.md` → `.opencode/skills/engineering-conventions/SKILL.md` (or `.claude/skills/engineering-conventions/SKILL.md`) |
 
